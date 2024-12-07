@@ -25,7 +25,7 @@ void ofApp::setup() {
 
 	char const* vlc_argv[] = { "", "--input-repeat=100" };
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
-	player.load("data/FC Shuttle 1303.mp3", vlc_argc, vlc_argv);
+	player.load(ofToDataPath("FC Shuttle 1303.mp3"), vlc_argc, vlc_argv);
 	player.setLoop(false);
 	player.play();
 }
