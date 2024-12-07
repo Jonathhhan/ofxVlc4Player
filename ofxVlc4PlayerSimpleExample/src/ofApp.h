@@ -7,6 +7,7 @@
 class ofApp : public ofBaseApp {
 	int bufferSize;
 	int outChannels;
+	std::string mediaPath;
 public:
     void setup();
     void update();
