@@ -6,7 +6,7 @@ ofxVlcPlayer::ofxVlcPlayer()
 	, eventManager(NULL)
 	, media(NULL)
 	, mediaPlayer(NULL)
-	, ringBuffer(static_cast<size_t>(1024 * 1024))
+	, ringBuffer(static_cast<size_t>(2048 * 2048))
 	, tex()
 	, fbo() {
 	ofGLFWWindowSettings settings;
@@ -88,6 +88,7 @@ int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsi
 
 void ofxVlcPlayer::audioCleanup(void* data) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
+    that->isAudioReady = false;
     std::cout << "audio cleanup" << std::endl;
 }
 
