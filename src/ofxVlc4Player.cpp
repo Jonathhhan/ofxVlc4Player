@@ -88,7 +88,7 @@ int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsi
 
 void ofxVlcPlayer::audioCleanup(void* data) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
-    that->isAudioReady = false;
+    // that->isAudioReady = false;
     std::cout << "audio cleanup" << std::endl;
 }
 
