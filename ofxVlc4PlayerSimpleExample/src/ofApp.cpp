@@ -44,6 +44,7 @@ void ofApp::update() {
 
 //--------------------------------------------------------------
 void ofApp::draw() {
+	// player.draw(0, 0, 1280, 720);
 	cam.begin();
 	projectM.bind();
 	ofEnableDepthTest();
@@ -51,12 +52,11 @@ void ofApp::draw() {
 	ofDisableDepthTest();
 	projectM.unbind();
 	cam.end();
-
-	ofSetColor(225);
-	ofDrawBitmapString(projectM.getPresetName(), 32, 700);
+	ofSetColor(200);
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate()), 20, 20);
 	ofDrawBitmapString("Second: " + ofToString(player.getTime() / 1000), 20, 40);
 	ofDrawBitmapString("Press space for play, p for pause and m for switching the projectM preset!", 20, 60);
+	ofDrawBitmapString(projectM.getPresetName(), 32, 700);
 }
 
 //--------------------------------------------------------------
