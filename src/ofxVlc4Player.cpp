@@ -280,6 +280,6 @@ void ofxVlcPlayer::close() {
     libvlc_media_release(media);
 }
 
-bool ofxVlcPlayer::audioIsReady() {
+bool ofxVlcPlayer::audioIsReady() const {
     return isAudioReady;
 }
