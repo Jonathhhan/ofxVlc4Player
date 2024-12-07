@@ -24,7 +24,7 @@ void ofApp::setup() {
 	settings.bufferSize = bufferSize;
 	soundStream.setup(settings);
 
-	char const* vlc_argv[] = { "", "--input-repeat=100" };
+	char const* vlc_argv[] = { "--file-caching=10", "--input-repeat=100" };
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 	player.load(ofToDataPath("FC Shuttle 1303.mp3"), vlc_argc, vlc_argv);
 	player.setLoop(false);
