@@ -16,7 +16,7 @@ void ofApp::setup() {
 	settings.setOutDevice(devices[0]);
 	settings.setOutListener(this);
 	// Change the sample rate to the rate and output channels to the channel number of the file that you want to play!
-	bufferSize = 128;
+	bufferSize = 256;
 	outChannels = 2;
 	settings.sampleRate = 48000;
 	settings.numOutputChannels = outChannels;
