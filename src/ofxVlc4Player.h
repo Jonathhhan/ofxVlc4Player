@@ -72,7 +72,7 @@ public:
     void setVolume(int volume);
     void toggleMute();
     void close();
-    ofMutex mutex;
     LockFreeRingBuffer ringBuffer;
     ofSoundBuffer buffer;
+    bool audioIsReady = false;
 };
