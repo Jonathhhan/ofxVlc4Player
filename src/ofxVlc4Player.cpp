@@ -2,25 +2,28 @@
 #include <GLFW/glfw3.h>
 
 ofxVlcPlayer::ofxVlcPlayer()
-	: libvlc(NULL)
-	, eventManager(NULL)
-	, media(NULL)
-	, mediaPlayer(NULL)
-	, ringBuffer(static_cast<size_t>(2048 * 2048))
-	, tex()
-	, fbo() {
-	ofGLFWWindowSettings settings;
-	settings.shareContextWith = ofGetCurrentWindow();
-	vlcWindow = std::make_shared<ofAppGLFWWindow>();
-	vlcWindow->setup(settings);
-	vlcWindow->setVerticalSync(true);
-	texture.allocate(1, 1, GL_RGBA);
-	buffer.allocate(1, 2);
+    : libvlc(NULL)
+    , eventManager(NULL)
+    , media(NULL)
+    , mediaPlayer(NULL)
+    , ringBuffer(static_cast<size_t>(2048 * 2048))
+    , tex()
+    , fbo() {
+    ofGLFWWindowSettings settings;
+    settings.shareContextWith = ofGetCurrentWindow();
+    vlcWindow = std::make_shared<ofAppGLFWWindow>();
+    vlcWindow->setup(settings);
+    vlcWindow->setVerticalSync(true);
+    texture.allocate(1, 1, GL_RGBA);
+    buffer.allocate(1, 2);
 }
 
 ofxVlcPlayer::~ofxVlcPlayer() {}
 
 void ofxVlcPlayer::load(std::string name, int vlc_argc, char const* vlc_argv[]) {
+    if (libvlc) {
+        stop();
+    }
     libvlc = libvlc_new(vlc_argc, vlc_argv);
     if (!libvlc) {
         const char* error = libvlc_errmsg();
@@ -84,6 +87,8 @@ int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsi
     that->sampleRate = rate[0];
     that->channels = channels[0];
     that->isAudioReady = true;
+    that->ringBuffer._readStart = 0;
+    that->ringBuffer._writeStart = 0;
     std::cout << "audio format : " << format << ", rate: " << rate[0] << ", channels: " << channels[0] << std::endl;
     return 0;
 }
@@ -174,7 +179,8 @@ bool ofxVlcPlayer::make_current(void* data, bool current) {
         ofAppGLFWWindow* win = dynamic_cast<ofAppGLFWWindow*>(that->vlcWindow.get());
         glfwMakeContextCurrent(win->getGLFWWindow());
         return true;
-    } else {
+    }
+    else {
         glfwMakeContextCurrent(NULL);
         return false;
     }
