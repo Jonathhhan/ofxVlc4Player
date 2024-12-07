@@ -25,6 +25,7 @@ class ofxVlcPlayer {
     int channels = 0;
     int sampleRate = 0;
     int ringBufferSize = 0;
+    bool isAudioReady = false;
 
     // VLC Video callbaks
     static bool videoSetup(void** data, const libvlc_video_setup_device_cfg_t* cfg, libvlc_video_setup_device_info_t* out);
@@ -72,7 +73,7 @@ public:
     void setVolume(int volume);
     void toggleMute();
     void close();
+    bool audioIsReady() const;
     LockFreeRingBuffer ringBuffer;
     ofSoundBuffer buffer;
-    bool audioIsReady = false;
 };
