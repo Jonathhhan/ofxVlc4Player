@@ -32,7 +32,9 @@ void ofApp::setup() {
 
 //--------------------------------------------------------------
 void ofApp::audioOut(ofSoundBuffer& buffer) {
-	player.ringBuffer.readIntoBuffer(buffer);
+	if (player.audioIsReady) {
+		player.ringBuffer.readIntoBuffer(buffer);
+	}
 }
 
 //--------------------------------------------------------------
