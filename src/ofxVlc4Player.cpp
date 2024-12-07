@@ -75,7 +75,7 @@ int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsi
     strncpy(format, "FL32", 4);
     that->sampleRate = rate[0];
     that->channels = channels[0];
-    that->audioIsReady = true;
+    that->isAudioReady = true;
     std::cout << "audio format : " << format << ", rate: " << rate[0] << ", channels: " << channels[0] << std::endl;
     return 0;
 }
@@ -278,4 +278,8 @@ void ofxVlcPlayer::vlcEvent(const libvlc_event_t* event) {
 void ofxVlcPlayer::close() {
     libvlc_media_player_release(mediaPlayer);
     libvlc_media_release(media);
+}
+
+bool ofxVlcPlayer::audioIsReady() {
+    return isAudioReady;
 }
