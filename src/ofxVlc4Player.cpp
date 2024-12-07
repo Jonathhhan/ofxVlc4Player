@@ -58,11 +58,13 @@ void ofxVlcPlayer::audioPlay(void* data, const void* samples, unsigned int count
 
 void ofxVlcPlayer::audioPause(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
+    that->isAudioReady = false;
     // std::cout << "audio pause" << std::endl;
 }
 
 void ofxVlcPlayer::audioResume(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
+    that->isAudioReady = true;
     // std::cout << "audio resume" << std::endl;
 }
 
