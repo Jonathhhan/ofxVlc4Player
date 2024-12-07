@@ -1,10 +1,12 @@
 #pragma once
 
 #include "ofMain.h"
-#include "ofxVlc4Player.h"
+#include "ofxVlc3Player.h"
 #include "ofxProjectM.h"
 
 class ofApp : public ofBaseApp {
+	int bufferSize;
+	int outChannels;
 public:
     void setup();
     void update();
@@ -21,6 +23,7 @@ public:
     void gotMessage(ofMessage msg);
     void audioOut(ofSoundBuffer& buffer);
     ofSoundStream soundStream;
+	ofSoundBuffer bufferCopy;
     ofxVlcPlayer player;
     ofxProjectM projectM;
     ofBoxPrimitive box;
