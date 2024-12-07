@@ -7,7 +7,7 @@ void ofApp::setup() {
 	cam.setPosition(0, 0, 200);
 	projectM.load();
 	projectM.setWindowSize(1024, 1024);
-	ofSetWindowTitle("ofxVlc3PlayerSimpleExample");
+	ofSetWindowTitle("ofxVlc4PlayerSimpleExample");
 	ofSetFrameRate(60);
 
 	soundStream.printDeviceList();
