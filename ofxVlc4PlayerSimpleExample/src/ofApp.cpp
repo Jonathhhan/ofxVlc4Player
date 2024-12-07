@@ -73,6 +73,9 @@ void ofApp::exit() {
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
 	if (key == 32) {
+		char const * vlc_argv[] = { "--file-caching=10", "--input-repeat=0" };
+		int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
+		player.load(mediaPath, vlc_argc, vlc_argv);
 		player.play();
 	}
 	else if (key == 112) {
