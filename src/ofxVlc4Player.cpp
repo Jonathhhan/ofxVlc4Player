@@ -2,14 +2,20 @@
 #include <GLFW/glfw3.h>
 
 ofxVlcPlayer::ofxVlcPlayer()
-    : libvlc(NULL), eventManager(NULL), media(NULL), mediaPlayer(NULL), ringBuffer(static_cast<size_t>(1024 * 1024)), tex(), fbo() {
-    ofGLFWWindowSettings settings;
-    settings.shareContextWith = ofGetCurrentWindow();
-    vlcWindow = std::make_shared<ofAppGLFWWindow>();
-    vlcWindow->setup(settings);
-    vlcWindow->setVerticalSync(true);
-    texture.allocate(1, 1, GL_RGBA);
-    buffer.allocate(1, 2);
+	: libvlc(NULL)
+	, eventManager(NULL)
+	, media(NULL)
+	, mediaPlayer(NULL)
+	, ringBuffer(static_cast<size_t>(1024 * 1024))
+	, tex()
+	, fbo() {
+	ofGLFWWindowSettings settings;
+	settings.shareContextWith = ofGetCurrentWindow();
+	vlcWindow = std::make_shared<ofAppGLFWWindow>();
+	vlcWindow->setup(settings);
+	vlcWindow->setVerticalSync(true);
+	texture.allocate(1, 1, GL_RGBA);
+	buffer.allocate(1, 2);
 }
 
 ofxVlcPlayer::~ofxVlcPlayer() {}
