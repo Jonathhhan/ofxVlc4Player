@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
-#include "ofxVlc3Player.h"
+#include "ofxVlc4Player.h"
 #include "ofxProjectM.h"
 
 class ofApp : public ofBaseApp {
