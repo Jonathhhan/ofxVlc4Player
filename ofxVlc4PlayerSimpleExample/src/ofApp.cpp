@@ -37,14 +37,13 @@ void ofApp::setup() {
 void ofApp::audioOut(ofSoundBuffer& buffer) {
 	if (player.audioIsReady()) {
 		player.ringBuffer.readIntoBuffer(buffer);
-		bufferCopy.swap(buffer);
+		projectM.audio(&buffer.getBuffer()[0], bufferSize, outChannels);
 	}
 }
 
 //--------------------------------------------------------------
 void ofApp::update() {
 	player.update();
-	projectM.audio(&bufferCopy.getBuffer()[0], bufferSize, outChannels);
 	projectM.update();
 }
 
