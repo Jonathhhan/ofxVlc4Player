@@ -30,7 +30,6 @@ void ofApp::setup() {
 	player.load(mediaPath, vlc_argc, vlc_argv);
 	player.setLoop(false);
 	player.play();
-	bufferCopy.allocate(1,2);
 }
 
 //--------------------------------------------------------------
