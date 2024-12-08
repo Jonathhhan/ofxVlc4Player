@@ -53,6 +53,7 @@ void ofxVlcPlayer::load(std::string name, int vlc_argc, char const* vlc_argv[]) 
 
 void ofxVlcPlayer::audioPlay(void* data, const void* samples, unsigned int count, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
+    that->isAudioReady = true;
     that->buffer.copyFrom((float*)samples, count, that->channels, that->sampleRate);
     that->ringBuffer.writeFromBuffer(that->buffer);
     // std::cout << "sample size : " << count << ", pts: " << pts << std::endl;
@@ -67,7 +68,6 @@ void ofxVlcPlayer::audioPause(void* data, int64_t pts) {
 
 void ofxVlcPlayer::audioResume(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
-    that->isAudioReady = true;
     // std::cout << "audio resume" << std::endl;
 }
 
@@ -86,7 +86,6 @@ int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsi
     strncpy(format, "FL32", 4);
     that->sampleRate = rate[0];
     that->channels = channels[0];
-    that->isAudioReady = true;
     that->ringBuffer._readStart = 0;
     that->ringBuffer._writeStart = 0;
     std::cout << "audio format : " << format << ", rate: " << rate[0] << ", channels: " << channels[0] << std::endl;
