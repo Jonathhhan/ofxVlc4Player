@@ -6,7 +6,7 @@ ofxVlcPlayer::ofxVlcPlayer()
     , eventManager(NULL)
     , media(NULL)
     , mediaPlayer(NULL)
-    , ringBuffer(static_cast<size_t>(2048 * 2048))
+    , ringBuffer(static_cast<size_t>(50000))
     , tex()
     , fbo() {
     ofGLFWWindowSettings settings;
