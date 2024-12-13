@@ -189,7 +189,7 @@ bool ofxVlcPlayer::make_current(void* data, bool current) {
 // This callback is called by VLC to get OpenGL functions
 void* ofxVlcPlayer::get_proc_address(void* data, const char* current) {
     // std::cout << current << std::endl;
-    return glfwGetProcAddress(current);
+    return (void*)glfwGetProcAddress(current);
 }
 
 void ofxVlcPlayer::update() {
