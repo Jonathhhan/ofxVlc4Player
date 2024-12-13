@@ -74,6 +74,8 @@ void ofxVlcPlayer::audioResume(void* data, int64_t pts) {
 
 void ofxVlcPlayer::audioFlush(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
+    that->ringBuffer._readStart = 0;
+    that->ringBuffer._writeStart = 0;
     std::cout << "audio flush" << std::endl;
 }
 
@@ -87,8 +89,6 @@ int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsi
     strncpy(format, "FL32", 4);
     that->sampleRate = rate[0];
     that->channels = channels[0];
-    that->ringBuffer._readStart = 0;
-    that->ringBuffer._writeStart = 0;
     std::cout << "audio format : " << format << ", rate: " << rate[0] << ", channels: " << channels[0] << std::endl;
     return 0;
 }
