@@ -24,8 +24,9 @@ void ofApp::setup() {
 	settings.bufferSize = bufferSize;
 	soundStream.setup(settings);
 
-	mediaPath = ofToDataPath("FC Shuttle 1303.mp3");
-	char const* vlc_argv[] = { "--file-caching=100", "--network-caching=100", "--input-repeat=100" };
+	// mediaPath = ofToDataPath("FC Shuttle 1303.mp3");
+	mediaPath = "https://media.tagesschau.de/video/2024/1210/TV-20241210-0008-5200.webxxl.h264.mp4";
+	char const* vlc_argv[] = { "--file-caching=0", "--network-caching=0", "--input-repeat=100", "--audio-desync=0" };
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 	player.load(mediaPath, vlc_argc, vlc_argv);
 	player.setLoop(false);
@@ -72,7 +73,7 @@ void ofApp::exit() {
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
 	if (key == 32) {
-		char const* vlc_argv[] = { "--file-caching=100", "--network-caching=100", "--input-repeat=0" };
+		char const* vlc_argv[] = { "--file-caching=0", "--network-caching=0", "--input-repeat=0", "--audio-desync=0" };
 		int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 		player.load(mediaPath, vlc_argc, vlc_argv);
 		player.play();
