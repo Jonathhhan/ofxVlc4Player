@@ -64,22 +64,22 @@ void ofxVlcPlayer::audioPlay(void* data, const void* samples, unsigned int count
 void ofxVlcPlayer::audioPause(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
     that->isAudioReady = false;
-    // std::cout << "audio pause" << std::endl;
+    std::cout << "audio pause" << std::endl;
 }
 
 void ofxVlcPlayer::audioResume(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
-    // std::cout << "audio resume" << std::endl;
+    std::cout << "audio resume" << std::endl;
 }
 
 void ofxVlcPlayer::audioFlush(void* data, int64_t pts) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
-    // std::cout << "audio flush" << std::endl;
+    std::cout << "audio flush" << std::endl;
 }
 
 void ofxVlcPlayer::audioDrain(void* data) {
     ofxVlcPlayer* that = static_cast<ofxVlcPlayer*>(data);
-    // std::cout << "audio drain " << std::endl;
+    std::cout << "audio drain " << std::endl;
 }
 
 int ofxVlcPlayer::audioSetup(void** data, char* format, unsigned int* rate, unsigned int* channels) {
