@@ -38,6 +38,7 @@ void ofxVlcPlayer::load(std::string name, int vlc_argc, char const* vlc_argv[]) 
         media = libvlc_media_new_path(name.c_str());
     }
 
+    libvlc_media_add_option(media, "demux=avformat");
     libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
     mediaPlayer = libvlc_media_player_new_from_media(libvlc, media);
     std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
