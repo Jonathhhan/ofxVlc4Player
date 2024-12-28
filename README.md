@@ -24,5 +24,7 @@ For Linux and Nvidia GPU:
 
 https://github.com/elFarto/nvidia-vaapi-driver
 
+export LIBVA_DRIVER_NAME=nvidia
+
 
 The example depends on the ofxProjectM addon: https://github.com/Jonathhhan/ofxProjectM
