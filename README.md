@@ -4,7 +4,7 @@ Binds libvlc 4.
 
 Windows:
 
-Copy the plugins folder to the project folder:
+Copy the plugins and lua folder to the OF project folder:
 https://artifacts.videolan.org/vlc/nightly-win64-llvm/
 
 Linux (Ubuntu):
