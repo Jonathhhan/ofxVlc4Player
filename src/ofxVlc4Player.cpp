@@ -30,7 +30,7 @@ void ofxVlcPlayer::init(int vlc_argc, char const * vlc_argv[]) {
 }
 
 void ofxVlcPlayer::load(std::string name) {
-	if (mediaPlayer && libvlc_media_player_is_playing(mediaPlayer)) {
+    if (mediaPlayer && libvlc_media_player_is_playing(mediaPlayer)) {
         stop();
     }
 
