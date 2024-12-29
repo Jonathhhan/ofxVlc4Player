@@ -50,7 +50,7 @@ void ofApp::update() {
 
 //--------------------------------------------------------------
 void ofApp::draw() {
-	// player.draw(0, 0, 1280, 720);
+	player.draw(0, 0, 1280, 720);
 	cam.begin();
 	projectM.bind();
 	ofEnableDepthTest();
@@ -76,7 +76,7 @@ void ofApp::keyPressed(int key) {
 	if (key == 32) {
 		char const* vlc_argv[] = { "--file-caching=10", "--network-caching=10", "--input-repeat=0", "--audio-desync=0", "-vv" };
 		int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
-		player.init(vlc_argc, vlc_argv);
+		// player.init(vlc_argc, vlc_argv);
 		player.load(mediaPath);
 		player.play();
 	}
