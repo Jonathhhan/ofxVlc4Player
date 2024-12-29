@@ -20,15 +20,18 @@ ofxVlcPlayer::ofxVlcPlayer()
 
 ofxVlcPlayer::~ofxVlcPlayer() {}
 
-void ofxVlcPlayer::load(std::string name, int vlc_argc, char const* vlc_argv[]) {
-    if (libvlc) {
+void ofxVlcPlayer::init(int vlc_argc, char const * vlc_argv[]) {
+	libvlc = libvlc_new(vlc_argc, vlc_argv);
+	if (!libvlc) {
+		const char * error = libvlc_errmsg();
+		cout << error << endl;
+		return;
+	}
+}
+
+void ofxVlcPlayer::load(std::string name) {
+	if (mediaPlayer && libvlc_media_player_is_playing(mediaPlayer)) {
         stop();
-    }
-    libvlc = libvlc_new(vlc_argc, vlc_argv);
-    if (!libvlc) {
-        const char* error = libvlc_errmsg();
-        cout << error << endl;
-        return;
     }
 
     if (ofStringTimesInString(name, "://") == 1) {
