@@ -1,7 +1,7 @@
 #include "ofxVlc4Player.h"
 #include <GLFW/glfw3.h>
 
-ofxVlcPlayer::ofxVlcPlayer()
+ofxVlc4Player::ofxVlc4Player()
 	: libvlc(NULL)
 	, eventManager(NULL)
 	, media(NULL)
@@ -18,9 +18,9 @@ ofxVlcPlayer::ofxVlcPlayer()
 	buffer.allocate(1, 2);
 }
 
-ofxVlcPlayer::~ofxVlcPlayer() { }
+ofxVlc4Player::~ofxVlc4Player() { }
 
-void ofxVlcPlayer::init(int vlc_argc, char const * vlc_argv[]) {
+void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 	libvlc = libvlc_new(vlc_argc, vlc_argv);
 	if (!libvlc) {
 		const char * error = libvlc_errmsg();
@@ -29,7 +29,7 @@ void ofxVlcPlayer::init(int vlc_argc, char const * vlc_argv[]) {
 	}
 }
 
-void ofxVlcPlayer::load(std::string name) {
+void ofxVlc4Player::load(std::string name) {
 	if (!libvlc) {
 		std::cout << "initialize libvlc first!" << std::endl;
 	} else {
@@ -62,8 +62,8 @@ void ofxVlcPlayer::load(std::string name) {
 	}
 }
 
-void ofxVlcPlayer::audioPlay(void * data, const void * samples, unsigned int count, int64_t pts) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::audioPlay(void * data, const void * samples, unsigned int count, int64_t pts) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->isAudioReady = true;
 	that->buffer.copyFrom((float *)samples, count, that->channels, that->sampleRate);
 	that->ringBuffer.writeFromBuffer(that->buffer);
@@ -71,32 +71,32 @@ void ofxVlcPlayer::audioPlay(void * data, const void * samples, unsigned int cou
 	// std::cout << "readable samples: " << that->ringBuffer.getNumReadableSamples() << ", read position: " << that->ringBuffer.getReadPosition() << std::endl;
 }
 
-void ofxVlcPlayer::audioPause(void * data, int64_t pts) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::audioPause(void * data, int64_t pts) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->isAudioReady = false;
 	std::cout << "audio pause" << std::endl;
 }
 
-void ofxVlcPlayer::audioResume(void * data, int64_t pts) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::audioResume(void * data, int64_t pts) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->isAudioReady = true;
 	std::cout << "audio resume" << std::endl;
 }
 
-void ofxVlcPlayer::audioFlush(void * data, int64_t pts) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::audioFlush(void * data, int64_t pts) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->ringBuffer._readStart = 0;
 	that->ringBuffer._writeStart = 0;
 	std::cout << "audio flush" << std::endl;
 }
 
-void ofxVlcPlayer::audioDrain(void * data) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::audioDrain(void * data) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	std::cout << "audio drain " << std::endl;
 }
 
-int ofxVlcPlayer::audioSetup(void ** data, char * format, unsigned int * rate, unsigned int * channels) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(*data);
+int ofxVlc4Player::audioSetup(void ** data, char * format, unsigned int * rate, unsigned int * channels) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(*data);
 	strncpy(format, "FL32", 4);
 	that->sampleRate = rate[0];
 	that->channels = channels[0];
@@ -106,15 +106,15 @@ int ofxVlcPlayer::audioSetup(void ** data, char * format, unsigned int * rate, u
 	return 0;
 }
 
-void ofxVlcPlayer::audioCleanup(void * data) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::audioCleanup(void * data) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->isAudioReady = false;
 	std::cout << "audio cleanup" << std::endl;
 }
 
 // This callback is called during initialisation
-bool ofxVlcPlayer::videoSetup(void ** data, const libvlc_video_setup_device_cfg_t * cfg, libvlc_video_setup_device_info_t * out) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(*data);
+bool ofxVlc4Player::videoSetup(void ** data, const libvlc_video_setup_device_cfg_t * cfg, libvlc_video_setup_device_info_t * out) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(*data);
 	that->videoWidth = 0;
 	that->videoHeight = 0;
 	std::cout << "video setup" << std::endl;
@@ -122,8 +122,8 @@ bool ofxVlcPlayer::videoSetup(void ** data, const libvlc_video_setup_device_cfg_
 }
 
 // This callback is called to release the texture and FBO created in resize
-void ofxVlcPlayer::videoCleanup(void * data) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::videoCleanup(void * data) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	if (that->videoWidth == 0 && that->videoHeight == 0)
 		return;
 
@@ -133,8 +133,8 @@ void ofxVlcPlayer::videoCleanup(void * data) {
 }
 
 // this callback will create the surfaces and FBO used by VLC to perform its rendering
-bool ofxVlcPlayer::videoResize(void * data, const libvlc_video_render_cfg_t * cfg, libvlc_video_output_cfg_t * render_cfg) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+bool ofxVlc4Player::videoResize(void * data, const libvlc_video_render_cfg_t * cfg, libvlc_video_output_cfg_t * render_cfg) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	if (cfg->width != that->videoWidth || cfg->height != that->videoHeight)
 		videoCleanup(data);
 
@@ -179,8 +179,8 @@ bool ofxVlcPlayer::videoResize(void * data, const libvlc_video_render_cfg_t * cf
 }
 
 // This callback is called after VLC performs drawing calls
-void ofxVlcPlayer::videoSwap(void * data) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+void ofxVlc4Player::videoSwap(void * data) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	std::lock_guard<std::mutex> lock(that->texLock);
 	that->updated = true;
 	std::swap(that->idxSwap, that->idxRender);
@@ -188,8 +188,8 @@ void ofxVlcPlayer::videoSwap(void * data) {
 }
 
 // This callback is called to set the OpenGL context
-bool ofxVlcPlayer::make_current(void * data, bool current) {
-	ofxVlcPlayer * that = static_cast<ofxVlcPlayer *>(data);
+bool ofxVlc4Player::make_current(void * data, bool current) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	if (current) {
 		ofAppGLFWWindow * win = dynamic_cast<ofAppGLFWWindow *>(that->vlcWindow.get());
 		glfwMakeContextCurrent(win->getGLFWWindow());
@@ -201,12 +201,12 @@ bool ofxVlcPlayer::make_current(void * data, bool current) {
 }
 
 // This callback is called by VLC to get OpenGL functions
-void * ofxVlcPlayer::get_proc_address(void * data, const char * current) {
+void * ofxVlc4Player::get_proc_address(void * data, const char * current) {
 	// std::cout << current << std::endl;
 	return (void *)glfwGetProcAddress(current);
 }
 
-void ofxVlcPlayer::update() {
+void ofxVlc4Player::update() {
 	if (updated) {
 		std::swap(idxSwap, idxDisplay);
 		updated = false;
@@ -214,61 +214,61 @@ void ofxVlcPlayer::update() {
 	texture.setUseExternalTextureID(tex[idxDisplay]);
 }
 
-ofTexture & ofxVlcPlayer::getTexture() {
+ofTexture & ofxVlc4Player::getTexture() {
 	return texture;
 }
 
-void ofxVlcPlayer::draw(float x, float y, float w, float h) {
+void ofxVlc4Player::draw(float x, float y, float w, float h) {
 	ofSetColor(255);
 	texture.draw(x, y, w, h);
 }
 
-void ofxVlcPlayer::draw(float x, float y) {
+void ofxVlc4Player::draw(float x, float y) {
 	ofSetColor(255);
 	texture.draw(x, y);
 }
 
-void ofxVlcPlayer::play() {
+void ofxVlc4Player::play() {
 	if (mediaPlayer) {
 		libvlc_media_player_play(mediaPlayer);
 	}
 }
 
-void ofxVlcPlayer::pause() {
+void ofxVlc4Player::pause() {
 	if (mediaPlayer) {
 		libvlc_media_player_pause(mediaPlayer);
 	}
 }
 
-void ofxVlcPlayer::stop() {
+void ofxVlc4Player::stop() {
 	if (mediaPlayer) {
 		libvlc_media_player_stop_async(mediaPlayer);
 	}
 }
 
-void ofxVlcPlayer::setPosition(float pct) {
+void ofxVlc4Player::setPosition(float pct) {
 	if (mediaPlayer) {
 		libvlc_media_player_set_position(mediaPlayer, pct, true);
 	}
 }
 
-void ofxVlcPlayer::setLoop(bool loop) {
+void ofxVlc4Player::setLoop(bool loop) {
 	isLooping = loop;
 }
 
-bool ofxVlcPlayer::getLoop() const {
+bool ofxVlc4Player::getLoop() const {
 	return isLooping;
 }
 
-float ofxVlcPlayer::getHeight() const {
+float ofxVlc4Player::getHeight() const {
 	return videoHeight;
 }
 
-float ofxVlcPlayer::getWidth() const {
+float ofxVlc4Player::getWidth() const {
 	return videoWidth;
 }
 
-bool ofxVlcPlayer::isPlaying() {
+bool ofxVlc4Player::isPlaying() {
 	if (mediaPlayer) {
 		return libvlc_media_player_is_playing(mediaPlayer);
 	} else {
@@ -276,7 +276,7 @@ bool ofxVlcPlayer::isPlaying() {
 	}
 }
 
-bool ofxVlcPlayer::isSeekable() {
+bool ofxVlc4Player::isSeekable() {
 	if (mediaPlayer) {
 		return libvlc_media_player_is_seekable(mediaPlayer);
 	} else {
@@ -284,7 +284,7 @@ bool ofxVlcPlayer::isSeekable() {
 	}
 }
 
-float ofxVlcPlayer::getPosition() {
+float ofxVlc4Player::getPosition() {
 	if (mediaPlayer) {
 		return libvlc_media_player_get_position(mediaPlayer);
 	} else {
@@ -292,7 +292,7 @@ float ofxVlcPlayer::getPosition() {
 	}
 }
 
-int ofxVlcPlayer::getTime() {
+int ofxVlc4Player::getTime() {
 	if (mediaPlayer) {
 		return libvlc_media_player_get_time(mediaPlayer);
 	} else {
@@ -300,13 +300,13 @@ int ofxVlcPlayer::getTime() {
 	}
 }
 
-void ofxVlcPlayer::setTime(int ms) {
+void ofxVlc4Player::setTime(int ms) {
 	if (mediaPlayer) {
 		libvlc_media_player_set_time(mediaPlayer, ms, true);
 	}
 }
 
-float ofxVlcPlayer::getLength() {
+float ofxVlc4Player::getLength() {
 	if (mediaPlayer) {
 		return libvlc_media_player_get_length(mediaPlayer);
 	} else {
@@ -314,23 +314,23 @@ float ofxVlcPlayer::getLength() {
 	}
 }
 
-void ofxVlcPlayer::setVolume(int volume) {
+void ofxVlc4Player::setVolume(int volume) {
 	if (mediaPlayer) {
 		libvlc_audio_set_volume(mediaPlayer, volume);
 	}
 }
 
-void ofxVlcPlayer::toggleMute() {
+void ofxVlc4Player::toggleMute() {
 	if (mediaPlayer) {
 		libvlc_audio_toggle_mute(mediaPlayer);
 	}
 }
 
-void ofxVlcPlayer::vlcEventStatic(const libvlc_event_t * event, void * data) {
-	((ofxVlcPlayer *)data)->vlcEvent(event);
+void ofxVlc4Player::vlcEventStatic(const libvlc_event_t * event, void * data) {
+	((ofxVlc4Player *)data)->vlcEvent(event);
 }
 
-void ofxVlcPlayer::vlcEvent(const libvlc_event_t * event) {
+void ofxVlc4Player::vlcEvent(const libvlc_event_t * event) {
 	if (event->type == libvlc_MediaPlayerStopping) {
 		if (isLooping) {
 			// play();
@@ -338,12 +338,12 @@ void ofxVlcPlayer::vlcEvent(const libvlc_event_t * event) {
 	}
 }
 
-void ofxVlcPlayer::close() {
+void ofxVlc4Player::close() {
 	libvlc_media_player_release(mediaPlayer);
 	libvlc_media_release(media);
 	libvlc_free(libvlc);
 }
 
-bool ofxVlcPlayer::audioIsReady() const {
+bool ofxVlc4Player::audioIsReady() const {
 	return isAudioReady;
 }
