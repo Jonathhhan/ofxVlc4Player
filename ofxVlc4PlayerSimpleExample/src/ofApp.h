@@ -24,7 +24,7 @@ public:
     void gotMessage(ofMessage msg);
     void audioOut(ofSoundBuffer& buffer);
     ofSoundStream soundStream;
-    ofxVlcPlayer player;
+    ofxVlc4Player player;
     ofxProjectM projectM;
     ofBoxPrimitive box;
     ofEasyCam cam;
