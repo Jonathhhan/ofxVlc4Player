@@ -40,9 +40,6 @@ void ofxVlc4Player::load(std::string name) {
 	if (!libvlc) {
 		std::cout << "initialize libvlc first!" << std::endl;
 	} else {
-		if (mediaPlayer && libvlc_media_player_is_playing(mediaPlayer)) {
-			stop();
-		}
 		if (ofStringTimesInString(name, "://") == 1) {
 			media = libvlc_media_new_location(name.c_str());
 		} else {
@@ -52,6 +49,7 @@ void ofxVlc4Player::load(std::string name) {
 		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
 		libvlc_media_player_set_media(mediaPlayer, media);
+		// libvlc_media_player_record(mediaPlayer, true, &ofToDataPath("")[0]);
 	}
 }
 
@@ -222,27 +220,19 @@ void ofxVlc4Player::draw(float x, float y) {
 }
 
 void ofxVlc4Player::play() {
-	if (mediaPlayer) {
-		libvlc_media_player_play(mediaPlayer);
-	}
+	libvlc_media_player_play(mediaPlayer);
 }
 
 void ofxVlc4Player::pause() {
-	if (mediaPlayer) {
-		libvlc_media_player_pause(mediaPlayer);
-	}
+	libvlc_media_player_pause(mediaPlayer);
 }
 
 void ofxVlc4Player::stop() {
-	if (mediaPlayer) {
-		libvlc_media_player_stop_async(mediaPlayer);
-	}
+	libvlc_media_player_stop_async(mediaPlayer);
 }
 
 void ofxVlc4Player::setPosition(float pct) {
-	if (mediaPlayer) {
-		libvlc_media_player_set_position(mediaPlayer, pct, true);
-	}
+	libvlc_media_player_set_position(mediaPlayer, pct, true);
 }
 
 float ofxVlc4Player::getHeight() const {
@@ -254,61 +244,35 @@ float ofxVlc4Player::getWidth() const {
 }
 
 bool ofxVlc4Player::isPlaying() {
-	if (mediaPlayer) {
-		return libvlc_media_player_is_playing(mediaPlayer);
-	} else {
-		return false;
-	}
+	return libvlc_media_player_is_playing(mediaPlayer);
 }
 
 bool ofxVlc4Player::isSeekable() {
-	if (mediaPlayer) {
-		return libvlc_media_player_is_seekable(mediaPlayer);
-	} else {
-		return false;
-	}
+	return libvlc_media_player_is_seekable(mediaPlayer);
 }
 
 float ofxVlc4Player::getPosition() {
-	if (mediaPlayer) {
-		return libvlc_media_player_get_position(mediaPlayer);
-	} else {
-		return 0;
-	}
+	return libvlc_media_player_get_position(mediaPlayer);
 }
 
 int ofxVlc4Player::getTime() {
-	if (mediaPlayer) {
-		return libvlc_media_player_get_time(mediaPlayer);
-	} else {
-		return 0;
-	}
+	return libvlc_media_player_get_time(mediaPlayer);
 }
 
 void ofxVlc4Player::setTime(int ms) {
-	if (mediaPlayer) {
-		libvlc_media_player_set_time(mediaPlayer, ms, true);
-	}
+	libvlc_media_player_set_time(mediaPlayer, ms, true);
 }
 
 float ofxVlc4Player::getLength() {
-	if (mediaPlayer) {
-		return libvlc_media_player_get_length(mediaPlayer);
-	} else {
-		return 0;
-	}
+	return libvlc_media_player_get_length(mediaPlayer);
 }
 
 void ofxVlc4Player::setVolume(int volume) {
-	if (mediaPlayer) {
-		libvlc_audio_set_volume(mediaPlayer, volume);
-	}
+	libvlc_audio_set_volume(mediaPlayer, volume);
 }
 
 void ofxVlc4Player::toggleMute() {
-	if (mediaPlayer) {
-		libvlc_audio_toggle_mute(mediaPlayer);
-	}
+	libvlc_audio_toggle_mute(mediaPlayer);
 }
 
 void ofxVlc4Player::vlcMediaPlayerEventStatic(const libvlc_event_t * event, void * data) {
