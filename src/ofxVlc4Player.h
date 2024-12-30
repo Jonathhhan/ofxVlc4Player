@@ -45,8 +45,10 @@ class ofxVlc4Player {
 	static void audioCleanup(void * data);
 
 	// VLC Event callbacks
-	static void vlcEventStatic(const libvlc_event_t * event, void * data);
-	void vlcEvent(const libvlc_event_t * event);
+	static void vlcMediaPlayerEventStatic(const libvlc_event_t * event, void * data);
+	void vlcMediaPlayerEvent(const libvlc_event_t * event);
+	static void vlcMediaEventStatic(const libvlc_event_t * event, void * data);
+	void vlcMediaEvent(const libvlc_event_t * event);
 
 public:
 	ofxVlc4Player();
