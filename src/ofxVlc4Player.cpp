@@ -33,7 +33,6 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 	libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
 	eventManager = libvlc_media_player_event_manager(mediaPlayer);
 	libvlc_event_attach(eventManager, libvlc_MediaPlayerLengthChanged, vlcEventStatic, this);
-	libvlc_event_attach(eventManager, libvlc_MediaPlayerStopping, vlcEventStatic, this);
 }
 
 void ofxVlc4Player::load(std::string name) {
@@ -244,14 +243,6 @@ void ofxVlc4Player::setPosition(float pct) {
 	}
 }
 
-void ofxVlc4Player::setLoop(bool loop) {
-	isLooping = loop;
-}
-
-bool ofxVlc4Player::getLoop() const {
-	return isLooping;
-}
-
 float ofxVlc4Player::getHeight() const {
 	return videoHeight;
 }
@@ -325,11 +316,6 @@ void ofxVlc4Player::vlcEventStatic(const libvlc_event_t * event, void * data) {
 void ofxVlc4Player::vlcEvent(const libvlc_event_t * event) {
 	if (event->type == libvlc_MediaPlayerLengthChanged) {
 		std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
-	}
-	if (event->type == libvlc_MediaPlayerStopping) {
-		if (isLooping) {
-			// play();
-		}
 	}
 }
 
