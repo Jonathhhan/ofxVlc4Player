@@ -15,7 +15,6 @@ class ofxVlc4Player {
 	unsigned videoWidth = 0;
 	unsigned videoHeight = 0;
 	bool updated = false;
-	bool isLooping = false;
 	std::mutex texLock;
 	GLuint tex[3];
 	GLuint fbo[3];
@@ -62,8 +61,6 @@ public:
 	void pause();
 	void stop();
 	void setPosition(float pct);
-	void setLoop(bool loop);
-	bool getLoop() const;
 	float getHeight() const;
 	float getWidth() const;
 	bool isPlaying();
