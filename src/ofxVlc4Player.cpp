@@ -32,6 +32,7 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 	libvlc_audio_set_callbacks(mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
 	libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
 	eventManager = libvlc_media_player_event_manager(mediaPlayer);
+	libvlc_event_attach(eventManager, libvlc_MediaPlayerLengthChanged, vlcEventStatic, this);
 	libvlc_event_attach(eventManager, libvlc_MediaPlayerStopping, vlcEventStatic, this);
 }
 
@@ -49,7 +50,6 @@ void ofxVlc4Player::load(std::string name) {
 		}
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
 		libvlc_media_add_option(media, "demux=avformat");
-		std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
 		libvlc_media_player_set_media(mediaPlayer, media);
 	}
 }
@@ -323,6 +323,9 @@ void ofxVlc4Player::vlcEventStatic(const libvlc_event_t * event, void * data) {
 }
 
 void ofxVlc4Player::vlcEvent(const libvlc_event_t * event) {
+	if (event->type == libvlc_MediaPlayerLengthChanged) {
+		std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
+	}
 	if (event->type == libvlc_MediaPlayerStopping) {
 		if (isLooping) {
 			// play();
