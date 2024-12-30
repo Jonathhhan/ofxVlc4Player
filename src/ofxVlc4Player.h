@@ -8,7 +8,8 @@ class ofxVlc4Player {
 	libvlc_instance_t * libvlc;
 	libvlc_media_t * media;
 	libvlc_media_player_t * mediaPlayer;
-	libvlc_event_manager_t * eventManager;
+	libvlc_event_manager_t * mediaPlayerEventManager;
+	libvlc_event_manager_t * mediaEventManager;
 
 	ofTexture texture;
 	shared_ptr<ofAppBaseWindow> vlcWindow;
