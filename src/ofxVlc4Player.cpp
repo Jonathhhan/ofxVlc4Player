@@ -27,6 +27,12 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 		cout << error << endl;
 		return;
 	}
+	mediaPlayer = libvlc_media_player_new(libvlc);
+	libvlc_video_set_output_callbacks(mediaPlayer, libvlc_video_engine_opengl, videoSetup, videoCleanup, nullptr, videoResize, videoSwap, make_current, get_proc_address, videoMetaData, nullptr, this);
+	libvlc_audio_set_callbacks(mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
+	libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
+	eventManager = libvlc_media_player_event_manager(mediaPlayer);
+	libvlc_event_attach(eventManager, libvlc_MediaPlayerStopping, vlcEventStatic, this);
 }
 
 void ofxVlc4Player::load(std::string name) {
@@ -36,24 +42,15 @@ void ofxVlc4Player::load(std::string name) {
 		if (mediaPlayer && libvlc_media_player_is_playing(mediaPlayer)) {
 			stop();
 		}
-
 		if (ofStringTimesInString(name, "://") == 1) {
 			media = libvlc_media_new_location(name.c_str());
 		} else {
 			media = libvlc_media_new_path(name.c_str());
 		}
-
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
 		libvlc_media_add_option(media, "demux=avformat");
-		mediaPlayer = libvlc_media_player_new_from_media(libvlc, media);
 		std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
-
-		libvlc_video_set_output_callbacks(mediaPlayer, libvlc_video_engine_opengl, videoSetup, videoCleanup, nullptr, videoResize, videoSwap, make_current, get_proc_address, nullptr, nullptr, this);
-		libvlc_audio_set_callbacks(mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
-		libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
-
-		eventManager = libvlc_media_player_event_manager(mediaPlayer);
-		libvlc_event_attach(eventManager, libvlc_MediaPlayerStopping, vlcEventStatic, this);
+		libvlc_media_player_set_media(mediaPlayer, media);
 	}
 }
 
