@@ -28,7 +28,7 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 		return;
 	}
 	mediaPlayer = libvlc_media_player_new(libvlc);
-	libvlc_video_set_output_callbacks(mediaPlayer, libvlc_video_engine_opengl, videoSetup, videoCleanup, nullptr, videoResize, videoSwap, make_current, get_proc_address, videoMetaData, nullptr, this);
+	libvlc_video_set_output_callbacks(mediaPlayer, libvlc_video_engine_opengl, videoSetup, videoCleanup, nullptr, videoResize, videoSwap, make_current, get_proc_address, nullptr, nullptr, this);
 	libvlc_audio_set_callbacks(mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
 	libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
 	mediaPlayerEventManager = libvlc_media_player_event_manager(mediaPlayer);
