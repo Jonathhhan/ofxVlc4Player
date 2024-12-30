@@ -3,7 +3,8 @@
 
 ofxVlc4Player::ofxVlc4Player()
 	: libvlc(NULL)
-	, eventManager(NULL)
+	, mediaPlayerEventManager(NULL)
+	, mediaEventManager(NULL)
 	, media(NULL)
 	, mediaPlayer(NULL)
 	, ringBuffer(static_cast<size_t>(50000))
