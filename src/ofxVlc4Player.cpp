@@ -46,14 +46,9 @@ void ofxVlc4Player::load(std::string name) {
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
 		libvlc_media_add_option(media, "demux=avformat");
 		mediaPlayer = libvlc_media_player_new_from_media(libvlc, media);
-
 		std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
 
 		libvlc_video_set_output_callbacks(mediaPlayer, libvlc_video_engine_opengl, videoSetup, videoCleanup, nullptr, videoResize, videoSwap, make_current, get_proc_address, nullptr, nullptr, this);
-		libvlc_video_output_set_window_cb;
-		libvlc_video_frameMetadata_cb;
-		libvlc_video_output_select_plane_cb;
-
 		libvlc_audio_set_callbacks(mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
 		libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
 
