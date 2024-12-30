@@ -31,8 +31,8 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 	libvlc_video_set_output_callbacks(mediaPlayer, libvlc_video_engine_opengl, videoSetup, videoCleanup, nullptr, videoResize, videoSwap, make_current, get_proc_address, videoMetaData, nullptr, this);
 	libvlc_audio_set_callbacks(mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
 	libvlc_audio_set_format_callbacks(mediaPlayer, audioSetup, audioCleanup);
-	eventManager = libvlc_media_player_event_manager(mediaPlayer);
-	libvlc_event_attach(eventManager, libvlc_MediaPlayerLengthChanged, vlcEventStatic, this);
+	mediaPlayerEventManager = libvlc_media_player_event_manager(mediaPlayer);
+	libvlc_event_attach(mediaPlayerEventManager, libvlc_MediaPlayerLengthChanged, vlcMediaPlayerEventStatic, this);
 }
 
 void ofxVlc4Player::load(std::string name) {
@@ -47,6 +47,8 @@ void ofxVlc4Player::load(std::string name) {
 		} else {
 			media = libvlc_media_new_path(name.c_str());
 		}
+		mediaEventManager = libvlc_media_event_manager(media);
+		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
 		libvlc_media_add_option(media, "demux=avformat");
 		libvlc_media_player_set_media(mediaPlayer, media);
@@ -309,12 +311,22 @@ void ofxVlc4Player::toggleMute() {
 	}
 }
 
-void ofxVlc4Player::vlcEventStatic(const libvlc_event_t * event, void * data) {
-	((ofxVlc4Player *)data)->vlcEvent(event);
+void ofxVlc4Player::vlcMediaPlayerEventStatic(const libvlc_event_t * event, void * data) {
+	((ofxVlc4Player *)data)->vlcMediaPlayerEvent(event);
 }
 
-void ofxVlc4Player::vlcEvent(const libvlc_event_t * event) {
+void ofxVlc4Player::vlcMediaPlayerEvent(const libvlc_event_t * event) {
 	if (event->type == libvlc_MediaPlayerLengthChanged) {
+		// std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
+	}
+}
+
+void ofxVlc4Player::vlcMediaEventStatic(const libvlc_event_t * event, void * data) {
+	((ofxVlc4Player *)data)->vlcMediaEvent(event);
+}
+
+void ofxVlc4Player::vlcMediaEvent(const libvlc_event_t * event) {
+	if (event->type == libvlc_MediaParsedChanged) {
 		std::cout << "media length in ms: " << libvlc_media_get_duration(media) << std::endl;
 	}
 }
