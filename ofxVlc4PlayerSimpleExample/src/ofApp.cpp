@@ -30,7 +30,6 @@ void ofApp::setup() {
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 	player.init(vlc_argc, vlc_argv);
 	player.load(mediaPath);
-	player.setLoop(false);
 	player.play();
 }
 
