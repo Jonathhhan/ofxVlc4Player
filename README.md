@@ -5,9 +5,8 @@ Binds libvlc 4.
 
 Windows:
 
-Copy the plugins and lua folder to the OF project folder:
+Copy the plugins and lua folder, libvlc.dll, libvlccore.dll and axvlc.dll to the OF project folder:
 https://artifacts.videolan.org/vlc/nightly-win64-llvm/
-
 
 Linux (Ubuntu):
 
