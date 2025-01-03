@@ -126,9 +126,10 @@ void ofxVlc4Player::videoCleanup(void * data) {
 // this callback will create the surfaces and FBO used by VLC to perform its rendering
 bool ofxVlc4Player::videoResize(void * data, const libvlc_video_render_cfg_t * cfg, libvlc_video_output_cfg_t * render_cfg) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
-	if (cfg->width != that->videoWidth || cfg->height != that->videoHeight)
+	if (cfg->width != that->videoWidth || cfg->height != that->videoHeight) {
 		videoCleanup(data);
-
+	}
+	
 	glGenTextures(3, that->tex);
 	glGenFramebuffers(3, that->fbo);
 
