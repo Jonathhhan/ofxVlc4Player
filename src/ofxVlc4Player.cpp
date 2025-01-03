@@ -47,7 +47,7 @@ void ofxVlc4Player::load(std::string name) {
 		}
 		mediaEventManager = libvlc_media_event_manager(media);
 		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
-		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
+		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_forced, 0);
 		libvlc_media_player_set_media(mediaPlayer, media);
 		// libvlc_media_player_record(mediaPlayer, true, &ofToDataPath("")[0]);
 	}
