@@ -44,6 +44,7 @@ void ofxVlc4Player::load(std::string name) {
 		} else {
 			media = libvlc_media_new_path(name.c_str());
 		}
+		libvlc_media_add_option(media, "demux=avcodec");
 		mediaEventManager = libvlc_media_event_manager(media);
 		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
