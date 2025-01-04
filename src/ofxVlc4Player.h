@@ -11,26 +11,17 @@ class ofxVlc4Player {
 	libvlc_event_manager_t * mediaPlayerEventManager;
 	libvlc_event_manager_t * mediaEventManager;
 
-	ofTexture texture;
 	shared_ptr<ofAppBaseWindow> vlcWindow;
 	unsigned videoWidth = 0;
 	unsigned videoHeight = 0;
-	bool updated = false;
-	std::mutex texLock;
-	GLuint tex[3];
-	GLuint fbo[3];
-	size_t idxRender = 0;
-	size_t idxSwap = 1;
-	size_t idxDisplay = 2;
 	int channels = 0;
 	int sampleRate = 0;
 	int ringBufferSize = 0;
 	bool isAudioReady = false;
 	ofSoundBuffer buffer;
+	ofFbo fbo;
 
 	// VLC Video callbaks
-	static bool videoSetup(void ** data, const libvlc_video_setup_device_cfg_t * cfg, libvlc_video_setup_device_info_t * out);
-	static void videoCleanup(void * data);
 	static bool videoResize(void * data, const libvlc_video_render_cfg_t * cfg, libvlc_video_output_cfg_t * render_cfg);
 	static void videoSwap(void * data);
 	static bool make_current(void * data, bool current);
@@ -56,7 +47,6 @@ public:
 	virtual ~ofxVlc4Player();
 	void init(int vlc_argc, char const * vlc_argv[]);
 	void load(std::string name);
-	void update();
 	ofTexture & getTexture();
 	void draw(float x, float y, float w, float h);
 	void draw(float x, float y);
