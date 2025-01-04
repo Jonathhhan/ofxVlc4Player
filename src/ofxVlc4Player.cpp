@@ -106,8 +106,6 @@ void ofxVlc4Player::audioCleanup(void * data) {
 // This callback is called during initialisation
 bool ofxVlc4Player::videoSetup(void ** data, const libvlc_video_setup_device_cfg_t * cfg, libvlc_video_setup_device_info_t * out) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(*data);
-	that->videoWidth = 0;
-	that->videoHeight = 0;
 	std::cout << "video setup" << std::endl;
 	return true;
 }
@@ -115,8 +113,9 @@ bool ofxVlc4Player::videoSetup(void ** data, const libvlc_video_setup_device_cfg
 // This callback is called to release the texture and FBO created in resize
 void ofxVlc4Player::videoCleanup(void * data) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
-	if (that->videoWidth == 0 && that->videoHeight == 0)
+	if (that->videoWidth == 0 && that->videoHeight == 0) {
 		return;
+	}
 
 	glDeleteTextures(3, that->tex);
 	glDeleteFramebuffers(3, that->fbo);
