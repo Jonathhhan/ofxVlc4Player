@@ -116,7 +116,6 @@ void ofxVlc4Player::videoCleanup(void * data) {
 	if (that->videoWidth == 0 && that->videoHeight == 0) {
 		return;
 	}
-
 	glDeleteTextures(3, that->tex);
 	glDeleteFramebuffers(3, that->fbo);
 	std::cout << "video cleanup" << std::endl;
@@ -127,45 +126,39 @@ bool ofxVlc4Player::videoResize(void * data, const libvlc_video_render_cfg_t * c
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	if (cfg->width != that->videoWidth || cfg->height != that->videoHeight) {
 		videoCleanup(data);
+		glGenTextures(3, that->tex);
+		glGenFramebuffers(3, that->fbo);
+
+		for (int i = 0; i < 3; i++) {
+			glBindTexture(GL_TEXTURE_2D, that->tex[i]);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cfg->width, cfg->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glBindFramebuffer(GL_FRAMEBUFFER, that->fbo[i]);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, that->tex[i], 0);
+		}
+		glBindTexture(GL_TEXTURE_2D, 0);
+		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			return false;
+		}
+		glBindFramebuffer(GL_FRAMEBUFFER, that->fbo[that->idxRender]);
+
+		render_cfg->opengl_format = GL_RGBA;
+		render_cfg->full_range = true;
+		render_cfg->colorspace = libvlc_video_colorspace_BT709;
+		render_cfg->primaries = libvlc_video_primaries_BT709;
+		render_cfg->transfer = libvlc_video_transfer_func_SRGB;
+		render_cfg->orientation = libvlc_video_orient_top_left;
+
+		that->videoWidth = cfg->width;
+		that->videoHeight = cfg->height;
+		that->texture.allocate(that->videoWidth, that->videoHeight, GL_RGBA);
+		that->texture.getTextureData().bFlipTexture = true;
 	}
-	
-	glGenTextures(3, that->tex);
-	glGenFramebuffers(3, that->fbo);
-
-	for (int i = 0; i < 3; i++) {
-		glBindTexture(GL_TEXTURE_2D, that->tex[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cfg->width, cfg->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, that->fbo[i]);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, that->tex[i], 0);
-	}
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		return false;
-	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, that->fbo[that->idxRender]);
-
-	render_cfg->opengl_format = GL_RGBA;
-	render_cfg->full_range = true;
-	render_cfg->colorspace = libvlc_video_colorspace_BT709;
-	render_cfg->primaries = libvlc_video_primaries_BT709;
-	render_cfg->transfer = libvlc_video_transfer_func_SRGB;
-	render_cfg->orientation = libvlc_video_orient_top_left;
-
-	that->videoWidth = cfg->width;
-	that->videoHeight = cfg->height;
-	that->texture.allocate(that->videoWidth, that->videoHeight, GL_RGBA);
-	that->texture.getTextureData().bFlipTexture = true;
 	std::cout << "video size: " << that->videoWidth << " * " << that->videoHeight << std::endl;
-
 	return true;
 }
 
