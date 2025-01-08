@@ -72,7 +72,7 @@ void ofxVlc4Player::record(std::string name, ofTexture texture) {
 		libvlc_media_add_option(media, "rawvid-fps=60");
 		libvlc_media_add_option(media, &stream[0]);
 		libvlc_media_player_set_media(mediaPlayer, media);
-		libvlc_media_player_play();
+		libvlc_media_player_play(mediaPlayer);
 	}
 }
 
