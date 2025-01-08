@@ -53,6 +53,50 @@ void ofxVlc4Player::load(std::string name) {
 	}
 }
 
+void ofxVlc4Player::record(std::string name, ofTexture texture) {
+	if (!libvlc) {
+		std::cout << "initialize libvlc first!" << std::endl;
+	} else {
+		tex.allocate(texture.getWidth(), texture.getHeight(), GL_RGB);
+		tex.setUseExternalTextureID(texture.getTextureData().textureID);
+		media = libvlc_media_new_callbacks(customOpen, customRead, customSeek, customClose, this);
+		std::string width = "rawvid-width=" + ofToString(texture.getWidth());
+		std::string height = "rawvid-height=" + ofToString(texture.getHeight());
+		std::string stream = "sout=#transcode{vcodec=h264,vb=10000}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp4}";
+		libvlc_media_add_option(media, "demux=rawvid");
+		libvlc_media_add_option(media, &width[0]);
+		libvlc_media_add_option(media, &height[0]);
+		libvlc_media_add_option(media, "rawvid-chroma=RV24");
+		libvlc_media_add_option(media, "rawvid-fps=60");
+		libvlc_media_add_option(media, &stream[0]);
+		libvlc_media_player_set_media(mediaPlayer, media);
+		libvlc_media_player_play();
+	}
+}
+
+int ofxVlc4Player::customOpen(void * data, void ** datap, uint64_t * sizep) {
+	*sizep = static_cast<uint64_t>(1920 * 1080) * 3;
+	*datap = data;
+	std::cout << "open " << std::endl;
+	return 0;
+}
+
+long long ofxVlc4Player::customRead(void * data, unsigned char * buffer, size_t size) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
+	memcpy(buffer, that->pix.getData(), size);
+	return size;
+}
+
+int ofxVlc4Player::customSeek(void * data, uint64_t offset) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
+	std::cout << "seek" << std::endl;
+	return 0;
+}
+
+void ofxVlc4Player::customClose(void * data) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
+	std::cout << "close" << std::endl;
+}
 void ofxVlc4Player::audioPlay(void * data, const void * samples, unsigned int count, int64_t pts) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->isAudioReady = true;
