@@ -57,7 +57,10 @@ void ofxVlc4Player::load(std::string name) {
 void ofxVlc4Player::record(std::string name, ofTexture texture) {
 	if (!libvlc) {
 		std::cout << "initialize libvlc first!" << std::endl;
+	} else if (isRecording) {
+		std::cout << "stop recording first!" << std::endl;
 	} else {
+		isRecording = true;
 		pix.allocate(texture.getWidth(), texture.getHeight(), OF_IMAGE_COLOR);
 		tex.allocate(texture.getWidth(), texture.getHeight(), GL_RGB);
 		tex.setUseExternalTextureID(texture.getTextureData().textureID);
@@ -79,7 +82,7 @@ void ofxVlc4Player::record(std::string name, ofTexture texture) {
 int ofxVlc4Player::customOpen(void * data, void ** datap, uint64_t * sizep) {
 	*sizep = static_cast<uint64_t>(1920 * 1080) * 3;
 	*datap = data;
-	std::cout << "open " << std::endl;
+	std::cout << "recording started!" << std::endl;
 	return 0;
 }
 
@@ -91,14 +94,15 @@ long long ofxVlc4Player::customRead(void * data, unsigned char * buffer, size_t 
 
 int ofxVlc4Player::customSeek(void * data, uint64_t offset) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
-	std::cout << "seek" << std::endl;
+	std::cout << "seek!" << std::endl;
 	return 0;
 }
 
 void ofxVlc4Player::customClose(void * data) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
-	std::cout << "close" << std::endl;
+	std::cout << "recording stopped!" << std::endl;
 }
+
 void ofxVlc4Player::audioPlay(void * data, const void * samples, unsigned int count, int64_t pts) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	that->isAudioReady = true;
@@ -218,6 +222,7 @@ void ofxVlc4Player::pause() {
 }
 
 void ofxVlc4Player::stop() {
+	isRecording = false;
 	libvlc_media_player_stop_async(mediaPlayer);
 }
 

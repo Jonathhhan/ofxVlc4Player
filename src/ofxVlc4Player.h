@@ -18,6 +18,7 @@ class ofxVlc4Player {
 	int sampleRate = 0;
 	int ringBufferSize = 0;
 	bool isAudioReady = false;
+	bool isRecording = false;
 	ofSoundBuffer buffer;
 	ofFbo fbo;
 	ofPixels pix;
