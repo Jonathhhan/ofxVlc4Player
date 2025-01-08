@@ -20,12 +20,19 @@ class ofxVlc4Player {
 	bool isAudioReady = false;
 	ofSoundBuffer buffer;
 	ofFbo fbo;
+	ofPixels pix;
+	ofTexture tex;
 
 	// VLC Video callbaks
 	static bool videoResize(void * data, const libvlc_video_render_cfg_t * cfg, libvlc_video_output_cfg_t * render_cfg);
 	static void videoSwap(void * data);
 	static bool make_current(void * data, bool current);
 	static void * get_proc_address(void * data, const char * current);
+
+	static int customOpen(void * data, void ** datap, uint64_t * sizep);
+	static long long customRead(void * data, unsigned char * buffer, size_t size);
+	static int customSeek(void * data, uint64_t offset);
+	static void customClose(void * data);
 
 	static void audioPlay(void * data, const void * samples, unsigned int count, int64_t pts);
 	static void audioPause(void * data, int64_t pts);
@@ -47,6 +54,7 @@ public:
 	virtual ~ofxVlc4Player();
 	void init(int vlc_argc, char const * vlc_argv[]);
 	void load(std::string name);
+	void record(std::string name, ofTexture texture);
 	ofTexture & getTexture();
 	void draw(float x, float y, float w, float h);
 	void draw(float x, float y);
