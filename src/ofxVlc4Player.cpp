@@ -15,6 +15,7 @@ ofxVlc4Player::ofxVlc4Player()
 	vlcWindow->setup(settings);
 	vlcWindow->setVerticalSync(true);
 	fbo.allocate(1, 1, GL_RGBA);
+	pix.allocate(1, 1, OF_IMAGE_COLOR);
 	buffer.allocate(1, 2);
 }
 
