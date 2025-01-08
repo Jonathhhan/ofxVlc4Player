@@ -193,7 +193,6 @@ void * ofxVlc4Player::get_proc_address(void * data, const char * current) {
 }
 
 void ofxVlc4Player::draw(float x, float y, float w, float h) {
-	tex.readToPixels(pix);
 	fbo.getTexture().draw(x, y, w, h);
 }
 
