@@ -34,7 +34,7 @@ void ofApp::draw() {
 	ofSetColor(200);
 	ofDrawBitmapString("FPS: " + ofToString(ofGetFrameRate()), 20, 20);
 	ofDrawBitmapString("Second: " + ofToString(player.getTime() / 1000), 20, 40);
-	ofDrawBitmapString("Press b for begin recording, e for end recording and m for switch the projectM preset!", 20, 60);
+	ofDrawBitmapString("Press b to start recording, e to stop recording and m to switch the projectM preset!", 20, 60);
 	ofDrawBitmapString(projectM.getPresetName(), 32, 700);
 }
 
