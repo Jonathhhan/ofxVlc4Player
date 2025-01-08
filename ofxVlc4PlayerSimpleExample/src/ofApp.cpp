@@ -43,7 +43,6 @@ void ofApp::audioOut(ofSoundBuffer& buffer) {
 
 //--------------------------------------------------------------
 void ofApp::update() {
-	player.update();
 	projectM.update();
 }
 
