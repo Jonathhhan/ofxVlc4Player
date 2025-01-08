@@ -61,7 +61,6 @@ void ofxVlc4Player::record(std::string name, ofTexture texture) {
 		std::cout << "stop recording first!" << std::endl;
 	} else {
 		isRecording = true;
-		pix.allocate(texture.getWidth(), texture.getHeight(), OF_IMAGE_COLOR);
 		tex.allocate(texture.getWidth(), texture.getHeight(), GL_RGB);
 		tex.setUseExternalTextureID(texture.getTextureData().textureID);
 		media = libvlc_media_new_callbacks(customOpen, customRead, customSeek, customClose, this);
