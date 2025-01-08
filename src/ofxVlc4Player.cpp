@@ -192,10 +192,6 @@ void * ofxVlc4Player::get_proc_address(void * data, const char * current) {
 	return (void *)glfwGetProcAddress(current);
 }
 
-ofTexture & ofxVlc4Player::getTexture() {
-	return fbo.getTexture();
-}
-
 void ofxVlc4Player::draw(float x, float y, float w, float h) {
 	tex.readToPixels(pix);
 	fbo.getTexture().draw(x, y, w, h);
@@ -203,6 +199,14 @@ void ofxVlc4Player::draw(float x, float y, float w, float h) {
 
 void ofxVlc4Player::draw(float x, float y) {
 	fbo.getTexture().draw(x, y);
+}
+
+void ofxVlc4Player::updateRecorder() {
+	tex.readToPixels(pix);
+}
+
+ofTexture & ofxVlc4Player::getTexture() {
+	return fbo.getTexture();
 }
 
 void ofxVlc4Player::play() {
