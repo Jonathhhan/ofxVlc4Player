@@ -55,9 +55,10 @@ public:
 	void init(int vlc_argc, char const * vlc_argv[]);
 	void load(std::string name);
 	void record(std::string name, ofTexture texture);
-	ofTexture & getTexture();
 	void draw(float x, float y, float w, float h);
 	void draw(float x, float y);
+	void updateRecorder();
+	ofTexture & getTexture();
 	void play();
 	void pause();
 	void stop();
