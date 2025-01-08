@@ -196,6 +196,7 @@ ofTexture & ofxVlc4Player::getTexture() {
 }
 
 void ofxVlc4Player::draw(float x, float y, float w, float h) {
+	tex.readToPixels(pix);
 	fbo.getTexture().draw(x, y, w, h);
 }
 
