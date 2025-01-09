@@ -57,7 +57,7 @@ void ofxVlc4Player::recordVideo(std::string name, ofTexture texture) {
 	if (!libvlc) {
 		std::cout << "initialize libvlc first!" << std::endl;
 	} else if (isRecording) {
-		std::cout << "stop recording first!" << std::endl;
+		std::cout << "stop video recording first!" << std::endl;
 	} else {
 		isRecording = true;
 		tex.allocate(texture.getWidth(), texture.getHeight(), GL_RGB);
@@ -105,7 +105,7 @@ void ofxVlc4Player::recordAudio(std::string name) {
 	if (!libvlc) {
 		std::cout << "initialize libvlc first!" << std::endl;
 	} else if (isRecording) {
-		std::cout << "stop recording first!" << std::endl;
+		std::cout << "stop audio recording first!" << std::endl;
 	} else {
 		isRecording = true;
 		media = libvlc_media_new_callbacks(audioOpen, audioRead, audioSeek, audioClose, this);
