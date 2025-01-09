@@ -54,7 +54,7 @@ void ofxVlc4Player::load(std::string name) {
 	}
 }
 
-void ofxVlc4Player::record(std::string name, ofTexture texture) {
+void ofxVlc4Player::recordVideo(std::string name, ofTexture texture) {
 	if (!libvlc) {
 		std::cout << "initialize libvlc first!" << std::endl;
 	} else if (isRecording) {
@@ -63,7 +63,7 @@ void ofxVlc4Player::record(std::string name, ofTexture texture) {
 		isRecording = true;
 		tex.allocate(texture.getWidth(), texture.getHeight(), GL_RGB);
 		tex.setUseExternalTextureID(texture.getTextureData().textureID);
-		media = libvlc_media_new_callbacks(customOpen, customRead, customSeek, customClose, this);
+		media = libvlc_media_new_callbacks(textureOpen, textureRead, textureSeek, textureClose, this);
 		std::string width = "rawvid-width=" + ofToString(texture.getWidth());
 		std::string height = "rawvid-height=" + ofToString(texture.getHeight());
 		std::string stream = "sout=#transcode{vcodec=h264,vb=10000}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp4}";
@@ -78,28 +78,73 @@ void ofxVlc4Player::record(std::string name, ofTexture texture) {
 	}
 }
 
-int ofxVlc4Player::customOpen(void * data, void ** datap, uint64_t * sizep) {
+int ofxVlc4Player::textureOpen(void * data, void ** datap, uint64_t * sizep) {
 	*sizep = static_cast<uint64_t>(1920 * 1080) * 3;
 	*datap = data;
-	std::cout << "recording started!" << std::endl;
+	std::cout << "video recording started!" << std::endl;
 	return 0;
 }
 
-long long ofxVlc4Player::customRead(void * data, unsigned char * buffer, size_t size) {
+long long ofxVlc4Player::textureRead(void * data, unsigned char * buffer, size_t size) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	memcpy(buffer, that->pix.getData(), size);
 	return size;
 }
 
-int ofxVlc4Player::customSeek(void * data, uint64_t offset) {
+int ofxVlc4Player::textureSeek(void * data, uint64_t offset) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
 	std::cout << "seek!" << std::endl;
 	return 0;
 }
 
-void ofxVlc4Player::customClose(void * data) {
+void ofxVlc4Player::textureClose(void * data) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
-	std::cout << "recording stopped!" << std::endl;
+	std::cout << "video recording stopped!" << std::endl;
+}
+
+void ofxVlc4Player::recordAudio(std::string name) {
+	if (!libvlc) {
+		std::cout << "initialize libvlc first!" << std::endl;
+	} else if (isRecording) {
+		std::cout << "stop recording first!" << std::endl;
+	} else {
+		isRecording = true;
+		media = libvlc_media_new_callbacks(audioOpen, audioRead, audioSeek, audioClose, this);
+		std::string width = "rawaud-channels=" + ofToString(2);
+		std::string height = "rawaud-samplerate=" + ofToString(44100);
+		std::string stream = "sout=#transcode{acodec=mp3,ab=320}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp3}";
+		libvlc_media_add_option(media, "demux=rawaud");
+		libvlc_media_add_option(media, &width[0]);
+		libvlc_media_add_option(media, &height[0]);
+		libvlc_media_add_option(media, "rawaud-fourcc=s16l");
+		libvlc_media_add_option(media, &stream[0]);
+		libvlc_media_player_set_media(mediaPlayer, media);
+		libvlc_media_player_play(mediaPlayer);
+	}
+}
+
+int ofxVlc4Player::audioOpen(void * data, void ** datap, uint64_t * sizep) {
+	*sizep = static_cast<uint64_t>(256 * 2);
+	*datap = data;
+	std::cout << "audio recording started!" << std::endl;
+	return 0;
+}
+
+long long ofxVlc4Player::audioRead(void * data, unsigned char * buffer, size_t size) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
+	// memcpy(buffer, that->pix.getData(), size);
+	return size;
+}
+
+int ofxVlc4Player::audioSeek(void * data, uint64_t offset) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
+	std::cout << "seek!" << std::endl;
+	return 0;
+}
+
+void ofxVlc4Player::audioClose(void * data) {
+	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
+	std::cout << "audio recording stopped!" << std::endl;
 }
 
 void ofxVlc4Player::audioPlay(void * data, const void * samples, unsigned int count, int64_t pts) {
