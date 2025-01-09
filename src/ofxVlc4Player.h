@@ -3,7 +3,7 @@
 #include "ofMain.h"
 #include "LockFreeRingBuffer.h"
 #include "vlc/vlc.h"
-#include <GLFW/glfw3.h>
+#include "GLFW/glfw3.h"
 
 class ofxVlc4Player {
 	libvlc_instance_t * libvlc;
