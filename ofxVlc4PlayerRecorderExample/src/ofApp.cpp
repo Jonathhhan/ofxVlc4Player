@@ -46,7 +46,7 @@ void ofApp::exit() {
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
 	if (key == 98) {
-		player.record(mediaPath, projectM.getTexture());
+		player.recordVideo(mediaPath, projectM.getTexture());
 	}
 	else if (key == 101) {
 		player.stop();
