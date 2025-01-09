@@ -1,5 +1,4 @@
 #include "ofxVlc4Player.h"
-#include <GLFW/glfw3.h>
 
 ofxVlc4Player::ofxVlc4Player()
 	: libvlc(NULL)
@@ -114,9 +113,10 @@ void ofxVlc4Player::recordAudio(std::string name) {
 		std::string height = "rawaud-samplerate=" + ofToString(44100);
 		std::string stream = "sout=#transcode{acodec=mp3,ab=320}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp3}";
 		libvlc_media_add_option(media, "demux=rawaud");
+		libvlc_media_add_option(media, "mux=dummy");
 		libvlc_media_add_option(media, &width[0]);
 		libvlc_media_add_option(media, &height[0]);
-		libvlc_media_add_option(media, "rawaud-fourcc=s16l");
+		libvlc_media_add_option(media, "rawaud-fourcc=f32l");
 		libvlc_media_add_option(media, &stream[0]);
 		libvlc_media_player_set_media(mediaPlayer, media);
 		libvlc_media_player_play(mediaPlayer);
