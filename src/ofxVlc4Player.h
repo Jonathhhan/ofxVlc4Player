@@ -30,10 +30,15 @@ class ofxVlc4Player {
 	static bool make_current(void * data, bool current);
 	static void * get_proc_address(void * data, const char * current);
 
-	static int customOpen(void * data, void ** datap, uint64_t * sizep);
-	static long long customRead(void * data, unsigned char * buffer, size_t size);
-	static int customSeek(void * data, uint64_t offset);
-	static void customClose(void * data);
+	static int textureOpen(void * data, void ** datap, uint64_t * sizep);
+	static long long textureRead(void * data, unsigned char * buffer, size_t size);
+	static int textureSeek(void * data, uint64_t offset);
+	static void textureClose(void * data);
+
+	static int audioOpen(void * data, void ** datap, uint64_t * sizep);
+	static long long audioRead(void * data, unsigned char * buffer, size_t size);
+	static int audioSeek(void * data, uint64_t offset);
+	static void audioClose(void * data);
 
 	static void audioPlay(void * data, const void * samples, unsigned int count, int64_t pts);
 	static void audioPause(void * data, int64_t pts);
@@ -55,7 +60,8 @@ public:
 	virtual ~ofxVlc4Player();
 	void init(int vlc_argc, char const * vlc_argv[]);
 	void load(std::string name);
-	void record(std::string name, ofTexture texture);
+	void recordVideo(std::string name, ofTexture texture);
+	void recordAudio(std::string name);
 	void draw(float x, float y, float w, float h);
 	void draw(float x, float y);
 	void updateRecorder();
