@@ -74,6 +74,7 @@ void ofxVlc4Player::recordVideo(std::string name, ofTexture texture) {
 		libvlc_media_add_option(media, &stream[0]);
 		libvlc_media_player_set_media(mediaPlayer, media);
 		libvlc_media_player_play(mediaPlayer);
+		// libvlc_media_player_record(mediaPlayer, true, &ofToDataPath("")[0]);
 	}
 }
 
@@ -267,6 +268,7 @@ void ofxVlc4Player::pause() {
 
 void ofxVlc4Player::stop() {
 	isRecording = false;
+	// libvlc_media_player_record(mediaPlayer, false, &ofToDataPath("")[0]);
 	libvlc_media_player_stop_async(mediaPlayer);
 }
 
