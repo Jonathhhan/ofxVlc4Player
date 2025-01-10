@@ -110,17 +110,18 @@ void ofxVlc4Player::recordAudio(std::string name) {
 	} else {
 		isRecording = true;
 		media = libvlc_media_new_callbacks(audioOpen, audioRead, audioSeek, audioClose, this);
-		std::string width = "rawaud-channels=" + ofToString(2);
-		std::string height = "rawaud-samplerate=" + ofToString(44100);
+		std::string channels = "rawaud-channels=" + ofToString(2);
+		std::string samplerate = "rawaud-samplerate=" + ofToString(44100);
 		std::string stream = "sout=#transcode{acodec=mp3,ab=320}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp3}";
 		libvlc_media_add_option(media, "demux=rawaud");
 		libvlc_media_add_option(media, "mux=dummy");
-		libvlc_media_add_option(media, &width[0]);
-		libvlc_media_add_option(media, &height[0]);
+		libvlc_media_add_option(media, &channels[0]);
+		libvlc_media_add_option(media, &samplerate[0]);
 		libvlc_media_add_option(media, "rawaud-fourcc=f32l");
 		libvlc_media_add_option(media, &stream[0]);
 		libvlc_media_player_set_media(mediaPlayer, media);
 		libvlc_media_player_play(mediaPlayer);
+		// libvlc_media_player_record(mediaPlayer, true, &ofToDataPath("")[0]);
 	}
 }
 
