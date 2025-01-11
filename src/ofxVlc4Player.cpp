@@ -7,6 +7,7 @@ ofxVlc4Player::ofxVlc4Player()
 	, media(NULL)
 	, mediaPlayer(NULL)
 	, ringBuffer(static_cast<size_t>(50000))
+	, ringBuffer2(static_cast<size_t>(50000))
 	, fbo() {
 	ofGLFWWindowSettings settings;
 	settings.shareContextWith = ofGetCurrentWindow();
@@ -126,7 +127,7 @@ void ofxVlc4Player::recordAudio(std::string name) {
 }
 
 int ofxVlc4Player::audioOpen(void * data, void ** datap, uint64_t * sizep) {
-	*sizep = static_cast<uint64_t>(256 * 2);
+	*sizep = static_cast<uint64_t>(50000);
 	*datap = data;
 	std::cout << "audio recording started!" << std::endl;
 	return 0;
@@ -134,7 +135,11 @@ int ofxVlc4Player::audioOpen(void * data, void ** datap, uint64_t * sizep) {
 
 long long ofxVlc4Player::audioRead(void * data, unsigned char * buffer, size_t size) {
 	ofxVlc4Player * that = static_cast<ofxVlc4Player *>(data);
-	// memcpy(buffer, that->pix.getData(), size);
+	std::cout << size << std::endl;
+	ofSoundBuffer tempBuffer;
+	tempBuffer.allocate(size / 8, 2);
+	that->ringBuffer2.readIntoBuffer(tempBuffer);
+	memcpy(buffer, &tempBuffer.getBuffer()[0], size);
 	return size;
 }
 
