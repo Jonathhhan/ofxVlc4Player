@@ -84,4 +84,5 @@ public:
 	void close();
 	bool audioIsReady() const;
 	LockFreeRingBuffer ringBuffer;
+	LockFreeRingBuffer ringBuffer2;
 };
