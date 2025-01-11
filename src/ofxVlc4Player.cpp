@@ -127,7 +127,7 @@ void ofxVlc4Player::recordAudio(std::string name) {
 }
 
 int ofxVlc4Player::audioOpen(void * data, void ** datap, uint64_t * sizep) {
-	*sizep = 0;
+	*sizep = 50000;
 	*datap = data;
 	std::cout << "audio recording started!" << std::endl;
 	return 0;
