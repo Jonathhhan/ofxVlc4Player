@@ -46,6 +46,10 @@ void ofxVlc4Player::load(std::string name) {
 			media = libvlc_media_new_path(name.c_str());
 		}
 		libvlc_media_add_option(media, "demux=avcodec");
+		// libvlc_media_add_option(media, "dshow-vdev=HD USB Camera");
+		// libvlc_media_add_option(media, "dshow-adev=Saffire Audio");
+		// libvlc_media_add_option(media, "dshow-size=1920x1080");
+		// libvlc_media_add_option(media, "dshow-fps=30");
 		mediaEventManager = libvlc_media_event_manager(media);
 		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
 		libvlc_media_parse_request(libvlc, media, libvlc_media_parse_local, 0);
