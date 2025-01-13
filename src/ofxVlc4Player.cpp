@@ -65,11 +65,13 @@ void ofxVlc4Player::recordVideo(std::string name, ofTexture texture) {
 		std::cout << "stop video recording first!" << std::endl;
 	} else {
 		isRecording = true;
-		tex.allocate(texture.getWidth(), texture.getHeight(), GL_RGB);
+		textureWidth = texture.getWidth();
+		textureHeight = texture.getHeight();
+		tex.allocate(textureWidth, textureHeight, GL_RGB);
 		tex.setUseExternalTextureID(texture.getTextureData().textureID);
 		media = libvlc_media_new_callbacks(textureOpen, textureRead, textureSeek, textureClose, this);
-		std::string width = "rawvid-width=" + ofToString(texture.getWidth());
-		std::string height = "rawvid-height=" + ofToString(texture.getHeight());
+		std::string width = "rawvid-width=" + ofToString(textureWidth);
+		std::string height = "rawvid-height=" + ofToString(textureHeight);
 		std::string stream = "sout=#transcode{vcodec=h264,vb=10000}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp4}";
 		libvlc_media_add_option(media, "demux=rawvid");
 		libvlc_media_add_option(media, &width[0]);
@@ -84,7 +86,7 @@ void ofxVlc4Player::recordVideo(std::string name, ofTexture texture) {
 }
 
 int ofxVlc4Player::textureOpen(void * data, void ** datap, uint64_t * sizep) {
-	*sizep = static_cast<uint64_t>(1920 * 1080) * 3;
+	*sizep = static_cast<uint64_t>(that->textureWidth * that->textureHeight) * 3;
 	*datap = data;
 	std::cout << "video recording started!" << std::endl;
 	return 0;
