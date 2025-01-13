@@ -20,6 +20,8 @@ class ofxVlc4Player {
 	int ringBufferSize = 0;
 	bool isAudioReady = false;
 	bool isRecording = false;
+	int textureWidth = 0;
+	int textureHeight = 0;
 	ofSoundBuffer buffer;
 	ofFbo fbo;
 	ofPixels pix;
