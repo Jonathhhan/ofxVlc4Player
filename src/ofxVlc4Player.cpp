@@ -127,6 +127,7 @@ void ofxVlc4Player::recordAudio(std::string name) {
 		libvlc_media_add_option(media, &channels[0]);
 		libvlc_media_add_option(media, &samplerate[0]);
 		libvlc_media_add_option(media, "rawaud-fourcc=f32l");
+		libvlc_media_add_option(media, "prefetch-buffer-size=50000");
 		libvlc_media_add_option(media, &stream[0]);
 		libvlc_media_player_set_media(mediaPlayer, media);
 		libvlc_media_player_play(mediaPlayer);
