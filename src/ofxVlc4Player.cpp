@@ -72,12 +72,14 @@ void ofxVlc4Player::recordVideo(std::string name, ofTexture texture) {
 		media = libvlc_media_new_callbacks(textureOpen, textureRead, textureSeek, textureClose, this);
 		std::string width = "rawvid-width=" + ofToString(textureWidth);
 		std::string height = "rawvid-height=" + ofToString(textureHeight);
+		std::string bufferSize = "prefetch-buffer-size=" + ofToString(textureWidth * textureHeight * 3);
 		std::string stream = "sout=#transcode{vcodec=MJPG}:standard{access=file,dst=" + name + ofGetTimestampString("-%Y-%m-%d-%H-%M-%S") + ".mp4}";
 		libvlc_media_add_option(media, "demux=rawvid");
 		libvlc_media_add_option(media, &width[0]);
 		libvlc_media_add_option(media, &height[0]);
 		libvlc_media_add_option(media, "rawvid-chroma=RV24");
-		libvlc_media_add_option(media, "rawvid-fps=60");
+		libvlc_media_add_option(media, "rawvid-fps=30");
+		libvlc_media_add_option(media, &bufferSize[0]);
 		libvlc_media_add_option(media, &stream[0]);
 		libvlc_media_player_set_media(mediaPlayer, media);
 		libvlc_media_player_play(mediaPlayer);
