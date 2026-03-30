@@ -19,6 +19,7 @@ param(
 	[switch]$KeepExtracted
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Resolve-AddonRoot([string]$StartDirectory) {
@@ -37,14 +38,6 @@ function Resolve-AddonRoot([string]$StartDirectory) {
 	}
 
 	throw "Could not determine addon root from '$StartDirectory'."
-}
-
-if ([string]::IsNullOrWhiteSpace($AddonRoot)) {
-	$ScriptDirectory = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-	if ([string]::IsNullOrWhiteSpace($ScriptDirectory)) {
-		throw 'Could not determine the script directory.'
-	}
-	$AddonRoot = Resolve-AddonRoot $ScriptDirectory
 }
 
 function Write-Step([string]$Message) {
@@ -121,27 +114,31 @@ function Copy-DirectoryContents([string]$SourceDirectory, [string]$TargetDirecto
 }
 
 function Copy-HeadersFromIncludeRoot([string]$SourceIncludeDirectory, [string]$TargetIncludeDirectory) {
-	$NestedIncludeDirectory = Join-Path $TargetIncludeDirectory 'vlc'
-	Ensure-Directory $TargetIncludeDirectory
-	Ensure-Directory $NestedIncludeDirectory
+	$HeaderFiles = Get-ChildItem -LiteralPath $SourceIncludeDirectory -File |
+		Where-Object { $_.Extension -in @('.h', '.hpp') }
+	$Destinations = @(
+		$TargetIncludeDirectory,
+		(Join-Path $TargetIncludeDirectory 'vlc')
+	)
 
-	Get-ChildItem -LiteralPath $SourceIncludeDirectory -File |
-		Where-Object { $_.Extension -in @('.h', '.hpp') } |
-		ForEach-Object {
-			Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetIncludeDirectory $_.Name) -Force
-			Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $NestedIncludeDirectory $_.Name) -Force
+	foreach ($Destination in $Destinations) {
+		Ensure-Directory $Destination
+		foreach ($HeaderFile in $HeaderFiles) {
+			Copy-Item -LiteralPath $HeaderFile.FullName -Destination (Join-Path $Destination $HeaderFile.Name) -Force
 		}
+	}
 }
 
-function Get-ExampleDirectories([string]$AddonRootPath) {
+function Get-ExampleBinDirectories([string]$AddonRootPath) {
 	return @(Get-ChildItem -LiteralPath $AddonRootPath -Directory -ErrorAction SilentlyContinue |
-		Where-Object { $_.Name -like '*Example*' })
+		Where-Object { $_.Name -like '*Example*' } |
+		ForEach-Object {
+			Join-Path $_.FullName 'bin'
+		})
 }
 
-function Copy-RuntimeToExampleBins([string]$LibvlcDll, [string]$LibvlccoreDll, [string]$PluginsSourceRoot, [string]$LuaSourceRoot, [string]$AddonRootPath) {
-	$ExampleDirectories = Get-ExampleDirectories $AddonRootPath
-	foreach ($ExampleDirectory in $ExampleDirectories) {
-		$BinDirectory = Join-Path $ExampleDirectory.FullName 'bin'
+function Copy-RuntimeToExampleBins([string]$LibvlcDll, [string]$LibvlccoreDll, [string]$PluginsSourceRoot, [string]$LuaSourceRoot, [string[]]$ExampleBinDirectories) {
+	foreach ($BinDirectory in $ExampleBinDirectories) {
 		Ensure-Directory $BinDirectory
 		Copy-OptionalFile $LibvlcDll $BinDirectory
 		Copy-OptionalFile $LibvlccoreDll $BinDirectory
@@ -172,6 +169,11 @@ function Resolve-LatestNightlyZipUrl([string]$IndexUrl) {
 
 function Find-VsToolPaths() {
 	$ToolNames = @('dumpbin.exe', 'lib.exe')
+	$SearchRoots = @(
+		'C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\Hostx64\x64',
+		'C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\HostX86\x64'
+	)
+
 	$Paths = @{}
 	foreach ($ToolName in $ToolNames) {
 		$Command = Get-Command $ToolName -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -180,10 +182,8 @@ function Find-VsToolPaths() {
 			continue
 		}
 
-		$Resolved = Find-FirstPath @(
-			"C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\Hostx64\x64\$ToolName",
-			"C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\HostX86\x64\$ToolName"
-		)
+		$Candidates = @($SearchRoots | ForEach-Object { Join-Path $_ $ToolName })
+		$Resolved = Find-FirstPath $Candidates
 		if (-not [string]::IsNullOrWhiteSpace($Resolved)) {
 			$Paths[$ToolName] = $Resolved
 		}
@@ -238,11 +238,38 @@ function New-ImportLibraryFromDll([string]$DllPath, [string]$OutputLibPath, [str
 	}
 }
 
+function Remove-StaleRuntimeFromLibraryDirectory([string]$TargetLibraryDirectory) {
+	$StaleRuntimeFiles = @(
+		(Join-Path $TargetLibraryDirectory 'libvlc.dll'),
+		(Join-Path $TargetLibraryDirectory 'libvlccore.dll')
+	)
+	foreach ($StaleRuntimeFile in $StaleRuntimeFiles) {
+		if (Test-Path -LiteralPath $StaleRuntimeFile) {
+			Remove-Item -LiteralPath $StaleRuntimeFile -Force
+		}
+	}
+
+	foreach ($StaleRuntimeDirectory in @((Join-Path $TargetLibraryDirectory 'plugins'), (Join-Path $TargetLibraryDirectory 'lua'))) {
+		if (Test-Path -LiteralPath $StaleRuntimeDirectory) {
+			Remove-Item -LiteralPath $StaleRuntimeDirectory -Recurse -Force
+		}
+	}
+}
+
+if ([string]::IsNullOrWhiteSpace($AddonRoot)) {
+	$ScriptDirectory = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+	if ([string]::IsNullOrWhiteSpace($ScriptDirectory)) {
+		throw 'Could not determine the script directory.'
+	}
+	$AddonRoot = Resolve-AddonRoot $ScriptDirectory
+}
+
 Write-Step 'Preparing install paths'
 
 $LibVlcRoot = Join-Path $AddonRoot 'libs\libvlc'
 $TargetIncludeDirectory = Join-Path $LibVlcRoot 'include'
 $TargetLibraryDirectory = Join-Path $LibVlcRoot 'lib\vs'
+$ExampleBinDirectories = Get-ExampleBinDirectories $AddonRoot
 
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ofxVlc4Player-libvlc-' + [guid]::NewGuid().ToString('N'))
 $ArchivePath = Join-Path $TempRoot 'libvlc.zip'
@@ -300,26 +327,11 @@ Write-Step 'Installing headers and runtime into addon libs/libvlc'
 Reset-Directory $TargetIncludeDirectory
 Ensure-Directory $TargetLibraryDirectory
 Copy-HeadersFromIncludeRoot $IncludeRoot $TargetIncludeDirectory
-
 Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory 'libvlc.lib') -Force
-
-$StaleRuntimeFiles = @(
-	(Join-Path $TargetLibraryDirectory 'libvlc.dll'),
-	(Join-Path $TargetLibraryDirectory 'libvlccore.dll')
-)
-foreach ($StaleRuntimeFile in $StaleRuntimeFiles) {
-	if (Test-Path -LiteralPath $StaleRuntimeFile) {
-		Remove-Item -LiteralPath $StaleRuntimeFile -Force
-	}
-}
-foreach ($StaleRuntimeDirectory in @((Join-Path $TargetLibraryDirectory 'plugins'), (Join-Path $TargetLibraryDirectory 'lua'))) {
-	if (Test-Path -LiteralPath $StaleRuntimeDirectory) {
-		Remove-Item -LiteralPath $StaleRuntimeDirectory -Recurse -Force
-	}
-}
+Remove-StaleRuntimeFromLibraryDirectory $TargetLibraryDirectory
 
 Write-Step 'Copying VLC runtime into example bin folders'
-Copy-RuntimeToExampleBins $LibvlcDll $LibvlccoreDll $PluginsSourceRoot $LuaSourceRoot $AddonRoot
+Copy-RuntimeToExampleBins $LibvlcDll $LibvlccoreDll $PluginsSourceRoot $LuaSourceRoot $ExampleBinDirectories
 
 if (-not $KeepArchive) {
 	if (Test-Path -LiteralPath $ArchivePath) { Remove-Item -LiteralPath $ArchivePath -Force }
@@ -329,8 +341,6 @@ if (-not $KeepArchive) {
 if (-not $KeepExtracted -and (Test-Path -LiteralPath $TempRoot)) {
 	Remove-Item -LiteralPath $TempRoot -Recurse -Force
 }
-
-$ExampleBinDirectories = @(Get-ExampleDirectories $AddonRoot | ForEach-Object { Join-Path $_.FullName 'bin' })
 
 Write-Step 'Done'
 Write-Host ''
@@ -343,4 +353,3 @@ if ($ExampleBinDirectories.Count -gt 0) {
 		Write-Host "    $ExampleBinDirectory"
 	}
 }
-

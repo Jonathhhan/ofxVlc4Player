@@ -501,6 +501,11 @@ void ofxVlc4Player::clearCurrentMedia() {
 
 	{
 		std::lock_guard<std::mutex> lock(videoMutex);
+		videoWidth.store(0);
+		videoHeight.store(0);
+		pendingVideoWidth.store(0);
+		pendingVideoHeight.store(0);
+		pendingResize.store(false);
 		displayAspectRatio.store(1.0f);
 		isVideoLoaded.store(false);
 		clearAllocatedFbo(fbo);
@@ -1023,6 +1028,11 @@ bool ofxVlc4Player::isShuffleEnabled() const {
 
 void ofxVlc4Player::setAudioCaptureEnabled(bool enabled) {
 	if (audioCaptureEnabled == enabled) {
+		return;
+	}
+
+	if (libvlc || mediaPlayer) {
+		setError("setAudioCaptureEnabled() must be called before init(); reinitialize the player to change audio capture.");
 		return;
 	}
 
