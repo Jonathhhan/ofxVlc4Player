@@ -218,8 +218,7 @@ void ofApp::setup() {
 	// -------- VIDEO PLAYER (hidden, for projectM)
 	videoPlayer.setAudioCaptureEnabled(false);
 	videoPlayer.init(hidden_vlc_argc, hidden_vlc_argv);
-	hiddenProjectMSeedPath = ofToDataPath("fingers.mp4", true);
-	videoPlayer.addPathToPlaylist(hiddenProjectMSeedPath, kSeedExtensions);
+	videoPlayer.addPathToPlaylist(ofToDataPath("fingers.mp4", true), kSeedExtensions);
 	videoPlayer.setPlaybackMode(ofxVlc4Player::PlaybackMode::Repeat);
 	syncHiddenProjectMVideoPlayer();
 }
@@ -448,19 +447,6 @@ void ofApp::applyProjectMTexture() {
 	}
 }
 
-void ofApp::ensureHiddenProjectMVideoPlayerSeeded() {
-	if (!videoPlayer.getPlaylist().empty()) {
-		return;
-	}
-
-	if (hiddenProjectMSeedPath.empty()) {
-		return;
-	}
-
-	videoPlayer.addToPlaylist(hiddenProjectMSeedPath);
-	videoPlayer.setPlaybackMode(ofxVlc4Player::PlaybackMode::Repeat);
-}
-
 void ofApp::syncHiddenProjectMVideoPlayer() {
 	const bool shouldUseHiddenVideoPlayer = usesHiddenProjectMVideoSource(projectMTextureSourceMode);
 
@@ -473,10 +459,6 @@ void ofApp::syncHiddenProjectMVideoPlayer() {
 	}
 
 	hiddenProjectMVideoSourceWasActive = true;
-	if (projectMTextureSourceMode == ProjectMTextureSourceMode::PlayerVideo) {
-		ensureHiddenProjectMVideoPlayerSeeded();
-	}
-
 	if (!videoPlayer.getPlaylist().empty() && videoPlayer.isStopped()) {
 		const int currentIndex = videoPlayer.getCurrentIndex();
 		videoPlayer.playIndex(currentIndex >= 0 ? currentIndex : 0);

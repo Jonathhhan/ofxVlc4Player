@@ -32,7 +32,6 @@ public:
 	void applyProjectMTexture();
 	bool hasProjectMSourceSize() const;
 	void ensureProjectMInitialized();
-	void ensureHiddenProjectMVideoPlayerSeeded();
 	void syncHiddenProjectMVideoPlayer();
 
 	void audioOut(ofSoundBuffer & buffer);
@@ -48,7 +47,6 @@ public:
 	ofFbo videoPreviewFbo;
 	ofFbo projectMSourceFbo;
 	std::string projectMCustomTexturePath;
-	std::string hiddenProjectMSeedPath;
 	float videoPreviewWidth = 0.0f;
 	float videoPreviewHeight = 0.0f;
 
