@@ -127,6 +127,71 @@ function Resolve-LatestNightlyZipUrl([string]$IndexUrl) {
 	return [System.Uri]::new([System.Uri]$NightlyDirectoryUrl, $ZipLink.href).AbsoluteUri
 }
 
+function Find-ToolPath([string]$ToolName) {
+	$Command = Get-Command $ToolName -ErrorAction SilentlyContinue | Select-Object -First 1
+	if ($null -ne $Command -and -not [string]::IsNullOrWhiteSpace($Command.Source)) {
+		return $Command.Source
+	}
+
+	$Candidates = @(
+		"C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\Hostx64\x64\$ToolName",
+		"C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\HostX86\x64\$ToolName"
+	)
+
+	return Find-FirstPath $Candidates
+}
+
+function New-ImportLibraryFromDll([string]$DllPath, [string]$OutputLibPath, [string]$TempDirectory) {
+	$DumpbinPath = Find-ToolPath 'dumpbin.exe'
+	$LibExePath = Find-ToolPath 'lib.exe'
+	if ([string]::IsNullOrWhiteSpace($DumpbinPath) -or [string]::IsNullOrWhiteSpace($LibExePath)) {
+		throw "Could not find dumpbin.exe and lib.exe to generate $(Split-Path $OutputLibPath -Leaf)."
+	}
+
+	$BaseName = [System.IO.Path]::GetFileNameWithoutExtension($DllPath)
+	$DefPath = Join-Path $TempDirectory ($BaseName + '.def')
+	$ExportLines = & $DumpbinPath /exports $DllPath 2>&1
+	if ($LASTEXITCODE -ne 0) {
+		throw "dumpbin.exe failed while reading exports from $(Split-Path $DllPath -Leaf)."
+	}
+
+	$ExportNames = New-Object System.Collections.Generic.List[string]
+	$InExportsTable = $false
+	foreach ($Line in $ExportLines) {
+		if ($Line -match '^\s+ordinal\s+hint\s+RVA\s+name$') {
+			$InExportsTable = $true
+			continue
+		}
+		if (-not $InExportsTable) {
+			continue
+		}
+		if ($Line -match '^\s*Summary$') {
+			break
+		}
+		if ($Line -match '^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(.+)$') {
+			$Name = $Matches[1].Trim()
+			$Forwarder = $Name.IndexOf('=')
+			if ($Forwarder -ge 0) {
+				$Name = $Name.Substring(0, $Forwarder).Trim()
+			}
+			if (-not [string]::IsNullOrWhiteSpace($Name)) {
+				$ExportNames.Add($Name)
+			}
+		}
+	}
+
+	if ($ExportNames.Count -eq 0) {
+		throw "Could not extract any exports from $(Split-Path $DllPath -Leaf)."
+	}
+
+	(@("LIBRARY $(Split-Path $DllPath -Leaf)", 'EXPORTS') + $ExportNames) | Set-Content -Path $DefPath
+
+	& $LibExePath /def:$DefPath /machine:x64 /out:$OutputLibPath | Out-Null
+	if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OutputLibPath)) {
+		throw "lib.exe failed while generating $(Split-Path $OutputLibPath -Leaf)."
+	}
+}
+
 Write-Step "Preparing install paths"
 
 $LibVlcRoot = Join-Path $AddonRoot "libs\libvlc"
@@ -136,9 +201,11 @@ $TargetLibraryDirectory = Join-Path $LibVlcRoot "lib\vs"
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ofxVlc4Player-libvlc-" + [guid]::NewGuid().ToString("N"))
 $ArchivePath = Join-Path $TempRoot "libvlc.zip"
 $ExtractPath = Join-Path $TempRoot "extract"
+$GeneratedLibDirectory = Join-Path $TempRoot 'generated-libs'
 
 Ensure-Directory $TempRoot
 Ensure-Directory $ExtractPath
+Ensure-Directory $GeneratedLibDirectory
 
 if ([string]::IsNullOrWhiteSpace($ZipUrl)) {
 	Write-Step "Resolving latest nightly ZIP"
@@ -171,13 +238,6 @@ $NestedHeaderSourceRoot = Find-FirstPath @(
 	(Join-Path $IncludeRoot "vlc")
 )
 
-$LibvlcImportLibrary = Find-FirstFileByName $ContentRoot "libvlc.lib"
-$LibvlccoreImportLibrary = Find-FirstFileByName $ContentRoot "libvlccore.lib"
-
-if ([string]::IsNullOrWhiteSpace($LibvlcImportLibrary) -or [string]::IsNullOrWhiteSpace($LibvlccoreImportLibrary)) {
-	throw "Could not find libvlc.lib and libvlccore.lib in the downloaded archive."
-}
-
 $LibvlcDll = Find-FirstFileByName $ContentRoot "libvlc.dll"
 $LibvlccoreDll = Find-FirstFileByName $ContentRoot "libvlccore.dll"
 $AxvlcDll = Find-FirstFileByName $ContentRoot "axvlc.dll"
@@ -186,30 +246,34 @@ if ([string]::IsNullOrWhiteSpace($LibvlcDll) -or [string]::IsNullOrWhiteSpace($L
 	throw "Could not find libvlc.dll and libvlccore.dll in the downloaded archive."
 }
 
-Write-Step "Installing headers and import libraries into addon libs/libvlc"
+$LibvlcImportLibrary = Find-FirstFileByName $ContentRoot "libvlc.lib"
+if ([string]::IsNullOrWhiteSpace($LibvlcImportLibrary)) {
+	Write-Step "Generating libvlc.lib from libvlc.dll"
+	$LibvlcImportLibrary = Join-Path $GeneratedLibDirectory 'libvlc.lib'
+	New-ImportLibraryFromDll $LibvlcDll $LibvlcImportLibrary $GeneratedLibDirectory
+}
+
+Write-Step "Installing headers and runtime into addon libs/libvlc"
 Reset-Directory $TargetIncludeDirectory
 Ensure-Directory $TargetLibraryDirectory
 
 Get-ChildItem -LiteralPath $IncludeRoot -File |
-	Where-Object { $_.Extension -in @(".h", ".hpp") } |
+	Where-Object { $_.Extension -in @('.h', '.hpp') } |
 	ForEach-Object {
 		Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetIncludeDirectory $_.Name) -Force
 	}
 
 if (-not [string]::IsNullOrWhiteSpace($NestedHeaderSourceRoot)) {
 	Get-ChildItem -LiteralPath $NestedHeaderSourceRoot -File |
-		Where-Object { $_.Extension -in @(".h", ".hpp") } |
+		Where-Object { $_.Extension -in @('.h', '.hpp') } |
 		ForEach-Object {
 			Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetIncludeDirectory $_.Name) -Force
 		}
 }
 
-Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory "libvlc.lib") -Force
-Copy-Item -LiteralPath $LibvlccoreImportLibrary -Destination (Join-Path $TargetLibraryDirectory "libvlccore.lib") -Force
-
-Write-Step "Installing runtime DLLs into addon libs/libvlc/lib/vs"
-Copy-Item -LiteralPath $LibvlcDll -Destination (Join-Path $TargetLibraryDirectory "libvlc.dll") -Force
-Copy-Item -LiteralPath $LibvlccoreDll -Destination (Join-Path $TargetLibraryDirectory "libvlccore.dll") -Force
+Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory 'libvlc.lib') -Force
+Copy-Item -LiteralPath $LibvlcDll -Destination (Join-Path $TargetLibraryDirectory 'libvlc.dll') -Force
+Copy-Item -LiteralPath $LibvlccoreDll -Destination (Join-Path $TargetLibraryDirectory 'libvlccore.dll') -Force
 Copy-OptionalFile $AxvlcDll $TargetLibraryDirectory
 
 if (-not $KeepArchive -and (Test-Path -LiteralPath $ArchivePath)) {
