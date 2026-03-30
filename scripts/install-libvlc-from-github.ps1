@@ -143,6 +143,24 @@ function Copy-HeadersFromIncludeRoot([string]$SourceIncludeDirectory, [string]$T
 		}
 }
 
+function Get-ExampleDirectories([string]$AddonRootPath) {
+	return @(Get-ChildItem -LiteralPath $AddonRootPath -Directory -ErrorAction SilentlyContinue |
+		Where-Object { $_.Name -like '*Example*' })
+}
+
+function Copy-RuntimeToExampleBins([string]$LibvlcDll, [string]$LibvlccoreDll, [string]$AxvlcDll, [string]$PluginsSourceRoot, [string]$LuaSourceRoot, [string]$AddonRootPath) {
+	$ExampleDirectories = Get-ExampleDirectories $AddonRootPath
+	foreach ($ExampleDirectory in $ExampleDirectories) {
+		$BinDirectory = Join-Path $ExampleDirectory.FullName 'bin'
+		Ensure-Directory $BinDirectory
+		Copy-OptionalFile $LibvlcDll $BinDirectory
+		Copy-OptionalFile $LibvlccoreDll $BinDirectory
+		Copy-OptionalFile $AxvlcDll $BinDirectory
+		Copy-DirectoryContents $PluginsSourceRoot (Join-Path $BinDirectory 'plugins')
+		Copy-DirectoryContents $LuaSourceRoot (Join-Path $BinDirectory 'lua')
+	}
+}
+
 function Resolve-LatestNightlyZipUrl([string]$IndexUrl) {
 	$IndexResponse = Invoke-WebRequest -UseBasicParsing -Uri $IndexUrl
 	$NightlyMatches = [regex]::Matches($IndexResponse.Content, 'href="(\d{8}-\d{4}/)"')
@@ -288,11 +306,25 @@ Ensure-Directory $TargetLibraryDirectory
 Copy-HeadersFromIncludeRoot $IncludeRoot $TargetIncludeDirectory
 
 Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory 'libvlc.lib') -Force
-Copy-Item -LiteralPath $LibvlcDll -Destination (Join-Path $TargetLibraryDirectory 'libvlc.dll') -Force
-Copy-Item -LiteralPath $LibvlccoreDll -Destination (Join-Path $TargetLibraryDirectory 'libvlccore.dll') -Force
-Copy-OptionalFile $AxvlcDll $TargetLibraryDirectory
-Copy-DirectoryContents $PluginsSourceRoot $TargetPluginsDirectory
-Copy-DirectoryContents $LuaSourceRoot $TargetLuaDirectory
+
+$StaleRuntimeFiles = @(
+	(Join-Path $TargetLibraryDirectory 'libvlc.dll'),
+	(Join-Path $TargetLibraryDirectory 'libvlccore.dll'),
+	(Join-Path $TargetLibraryDirectory 'axvlc.dll')
+)
+foreach ($StaleRuntimeFile in $StaleRuntimeFiles) {
+	if (Test-Path -LiteralPath $StaleRuntimeFile) {
+		Remove-Item -LiteralPath $StaleRuntimeFile -Force
+	}
+}
+foreach ($StaleRuntimeDirectory in @((Join-Path $TargetLibraryDirectory 'plugins'), (Join-Path $TargetLibraryDirectory 'lua'))) {
+	if (Test-Path -LiteralPath $StaleRuntimeDirectory) {
+		Remove-Item -LiteralPath $StaleRuntimeDirectory -Recurse -Force
+	}
+}
+
+Write-Step 'Copying VLC runtime into example bin folders'
+Copy-RuntimeToExampleBins $LibvlcDll $LibvlccoreDll $AxvlcDll $PluginsSourceRoot $LuaSourceRoot $AddonRoot
 
 if (-not $KeepArchive) {
 	if (Test-Path -LiteralPath $ArchivePath) { Remove-Item -LiteralPath $ArchivePath -Force }
@@ -309,3 +341,4 @@ Write-Host 'Installed libvlc into:' -ForegroundColor Green
 Write-Host "  $TargetIncludeDirectory"
 Write-Host "  $TargetLibraryDirectory"
 Write-Host "  runtime DLLs in $TargetLibraryDirectory"
+
