@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Downloads libvlc runtime files from the latest VLC nightly and libvlc headers from the VLC GitHub master branch,
+Downloads libvlc runtime files from the latest VLC nightly and public libvlc headers from the VLC GitHub master branch,
 and installs them into the addon-local libvlc layout.
 
 .EXAMPLE
@@ -12,15 +12,10 @@ and installs them into the addon-local libvlc layout.
 [CmdletBinding()]
 param(
 	[string]$ZipUrl = "",
-
 	[string]$NightlyIndexUrl = "https://artifacts.videolan.org/vlc/nightly-win64-llvm/",
-
 	[string]$HeaderZipUrl = "https://github.com/videolan/vlc/archive/refs/heads/master.zip",
-
 	[string]$AddonRoot = "",
-
 	[switch]$KeepArchive,
-
 	[switch]$KeepExtracted
 )
 
@@ -28,13 +23,9 @@ $ErrorActionPreference = "Stop"
 
 function Resolve-AddonRoot([string]$StartDirectory) {
 	$Current = Resolve-Path -LiteralPath $StartDirectory
-
 	while ($null -ne $Current) {
 		$Candidate = $Current.Path
-		$HasLibs = Test-Path -LiteralPath (Join-Path $Candidate "libs")
-		$HasAddonConfig = Test-Path -LiteralPath (Join-Path $Candidate "addon_config.mk")
-
-		if ($HasLibs -and $HasAddonConfig) {
+		if ((Test-Path -LiteralPath (Join-Path $Candidate 'libs')) -and (Test-Path -LiteralPath (Join-Path $Candidate 'addon_config.mk'))) {
 			return $Candidate
 		}
 
@@ -42,7 +33,6 @@ function Resolve-AddonRoot([string]$StartDirectory) {
 		if ([string]::IsNullOrWhiteSpace($Parent) -or $Parent -eq $Candidate) {
 			break
 		}
-
 		$Current = Resolve-Path -LiteralPath $Parent
 	}
 
@@ -50,15 +40,10 @@ function Resolve-AddonRoot([string]$StartDirectory) {
 }
 
 if ([string]::IsNullOrWhiteSpace($AddonRoot)) {
-	$ScriptDirectory = $PSScriptRoot
+	$ScriptDirectory = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 	if ([string]::IsNullOrWhiteSpace($ScriptDirectory)) {
-		$ScriptPath = $MyInvocation.MyCommand.Path
-		if ([string]::IsNullOrWhiteSpace($ScriptPath)) {
-			throw "Could not determine the script directory."
-		}
-		$ScriptDirectory = Split-Path -Parent $ScriptPath
+		throw 'Could not determine the script directory.'
 	}
-
 	$AddonRoot = Resolve-AddonRoot $ScriptDirectory
 }
 
@@ -85,7 +70,6 @@ function Find-FirstPath([string[]]$Candidates) {
 			return (Resolve-Path -LiteralPath $Candidate).Path
 		}
 	}
-
 	return $null
 }
 
@@ -98,7 +82,6 @@ function Find-FirstFileByName([string]$Root, [string]$Name) {
 	if ($null -eq $Match) {
 		return $null
 	}
-
 	return $Match.FullName
 }
 
@@ -106,18 +89,15 @@ function Copy-OptionalFile([string]$Source, [string]$DestinationDirectory) {
 	if ([string]::IsNullOrWhiteSpace($Source) -or -not (Test-Path -LiteralPath $Source)) {
 		return
 	}
-
 	Copy-Item -LiteralPath $Source -Destination (Join-Path $DestinationDirectory (Split-Path $Source -Leaf)) -Force
 }
 
 function Resolve-ContentRoot([string]$ExtractRoot) {
-	$ContentRoot = $ExtractRoot
 	$TopLevelDirectories = @(Get-ChildItem -LiteralPath $ExtractRoot -Directory -ErrorAction SilentlyContinue)
 	if ($TopLevelDirectories.Count -eq 1) {
-		$ContentRoot = $TopLevelDirectories[0].FullName
+		return $TopLevelDirectories[0].FullName
 	}
-
-	return $ContentRoot
+	return $ExtractRoot
 }
 
 function Resolve-IncludeRoot([string]$Root) {
@@ -127,17 +107,10 @@ function Resolve-IncludeRoot([string]$Root) {
 
 	$IncludeRoot = Find-FirstPath @(
 		(Join-Path $Root 'include\vlc'),
-		(Join-Path $Root 'include'),
-		(Join-Path $Root 'sdk\include\vlc'),
-		(Join-Path $Root 'sdk\include')
+		(Join-Path $Root 'sdk\include\vlc')
 	)
 	if (-not [string]::IsNullOrWhiteSpace($IncludeRoot)) {
-		$HasPublicHeaders =
-			(Test-Path -LiteralPath (Join-Path $IncludeRoot 'vlc.h')) -or
-			($null -ne (Get-ChildItem -LiteralPath $IncludeRoot -File -Filter 'libvlc*.h' -ErrorAction SilentlyContinue | Select-Object -First 1))
-		if ($HasPublicHeaders) {
-			return $IncludeRoot
-		}
+		return $IncludeRoot
 	}
 
 	$LibvlcHeader = Find-FirstFileByName $Root 'libvlc.h'
@@ -163,10 +136,6 @@ function Copy-DirectoryContents([string]$SourceDirectory, [string]$TargetDirecto
 }
 
 function Copy-HeadersFromIncludeRoot([string]$SourceIncludeDirectory, [string]$TargetIncludeDirectory) {
-	if ([string]::IsNullOrWhiteSpace($SourceIncludeDirectory) -or -not (Test-Path -LiteralPath $SourceIncludeDirectory)) {
-		return
-	}
-
 	Get-ChildItem -LiteralPath $SourceIncludeDirectory -File |
 		Where-Object { $_.Extension -in @('.h', '.hpp') } |
 		ForEach-Object {
@@ -200,12 +169,10 @@ function Find-ToolPath([string]$ToolName) {
 		return $Command.Source
 	}
 
-	$Candidates = @(
+	return Find-FirstPath @(
 		"C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\Hostx64\x64\$ToolName",
 		"C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\MSVC\14.50.35717\bin\HostX86\x64\$ToolName"
 	)
-
-	return Find-FirstPath $Candidates
 }
 
 function New-ImportLibraryFromDll([string]$DllPath, [string]$OutputLibPath, [string]$TempDirectory) {
@@ -229,12 +196,8 @@ function New-ImportLibraryFromDll([string]$DllPath, [string]$OutputLibPath, [str
 			$InExportsTable = $true
 			continue
 		}
-		if (-not $InExportsTable) {
-			continue
-		}
-		if ($Line -match '^\s*Summary$') {
-			break
-		}
+		if (-not $InExportsTable) { continue }
+		if ($Line -match '^\s*Summary$') { break }
 		if ($Line -match '^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(.+)$') {
 			$Name = $Matches[1].Trim()
 			$Forwarder = $Name.IndexOf('=')
@@ -252,14 +215,13 @@ function New-ImportLibraryFromDll([string]$DllPath, [string]$OutputLibPath, [str
 	}
 
 	(@("LIBRARY $(Split-Path $DllPath -Leaf)", 'EXPORTS') + $ExportNames) | Set-Content -Path $DefPath
-
 	& $LibExePath /def:$DefPath /machine:x64 /out:$OutputLibPath | Out-Null
 	if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OutputLibPath)) {
 		throw "lib.exe failed while generating $(Split-Path $OutputLibPath -Leaf)."
 	}
 }
 
-Write-Step "Preparing install paths"
+Write-Step 'Preparing install paths'
 
 $LibVlcRoot = Join-Path $AddonRoot 'libs\libvlc'
 $TargetIncludeDirectory = Join-Path $LibVlcRoot 'include'
@@ -290,47 +252,24 @@ Invoke-WebRequest -UseBasicParsing -Uri $ZipUrl -OutFile $ArchivePath
 
 Write-Step 'Extracting archive'
 Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractPath -Force
-
 $ContentRoot = Resolve-ContentRoot $ExtractPath
 
-$HeaderContentRoot = $null
-$IncludeRoot = $null
-$NestedHeaderSourceRoot = $null
+Write-Step 'Downloading VLC headers from GitHub master'
+Write-Host "     $HeaderZipUrl"
+Invoke-WebRequest -UseBasicParsing -Uri $HeaderZipUrl -OutFile $HeaderArchivePath
 
-if (-not [string]::IsNullOrWhiteSpace($HeaderZipUrl)) {
-	Write-Step 'Downloading VLC headers from GitHub master'
-	Write-Host "     $HeaderZipUrl"
-	Invoke-WebRequest -UseBasicParsing -Uri $HeaderZipUrl -OutFile $HeaderArchivePath
-
-	Write-Step 'Extracting VLC headers'
-	Expand-Archive -LiteralPath $HeaderArchivePath -DestinationPath $HeaderExtractPath -Force
-
-	$HeaderContentRoot = Resolve-ContentRoot $HeaderExtractPath
-	$IncludeRoot = Resolve-IncludeRoot $HeaderContentRoot
-}
-
+Write-Step 'Extracting VLC headers'
+Expand-Archive -LiteralPath $HeaderArchivePath -DestinationPath $HeaderExtractPath -Force
+$IncludeRoot = Resolve-IncludeRoot (Resolve-ContentRoot $HeaderExtractPath)
 if ([string]::IsNullOrWhiteSpace($IncludeRoot)) {
-	$IncludeRoot = Resolve-IncludeRoot $ContentRoot
-}
-
-
-$ExistingHeaderSourceAvailable =
-	(Test-Path -LiteralPath (Join-Path $TargetIncludeDirectory 'libvlc.h')) -or
-	(Test-Path -LiteralPath (Join-Path $TargetIncludeDirectory 'vlc.h'))
-
-if ([string]::IsNullOrWhiteSpace($IncludeRoot) -and -not $ExistingHeaderSourceAvailable) {
-	throw "Could not find libvlc headers in GitHub master or the downloaded archive, and no existing headers were found in '$TargetIncludeDirectory'."
+	throw 'Could not find the public libvlc header directory in the GitHub master archive.'
 }
 
 $LibvlcDll = Find-FirstFileByName $ContentRoot 'libvlc.dll'
 $LibvlccoreDll = Find-FirstFileByName $ContentRoot 'libvlccore.dll'
 $AxvlcDll = Find-FirstFileByName $ContentRoot 'axvlc.dll'
-$PluginsSourceRoot = Find-FirstPath @(
-	(Join-Path $ContentRoot 'plugins')
-)
-$LuaSourceRoot = Find-FirstPath @(
-	(Join-Path $ContentRoot 'lua')
-)
+$PluginsSourceRoot = Find-FirstPath @((Join-Path $ContentRoot 'plugins'))
+$LuaSourceRoot = Find-FirstPath @((Join-Path $ContentRoot 'lua'))
 
 if ([string]::IsNullOrWhiteSpace($LibvlcDll) -or [string]::IsNullOrWhiteSpace($LibvlccoreDll)) {
 	throw 'Could not find libvlc.dll and libvlccore.dll in the downloaded archive.'
@@ -343,18 +282,10 @@ if ([string]::IsNullOrWhiteSpace($LibvlcImportLibrary)) {
 	New-ImportLibraryFromDll $LibvlcDll $LibvlcImportLibrary $GeneratedLibDirectory
 }
 
-if (-not [string]::IsNullOrWhiteSpace($IncludeRoot)) {
-	Write-Step 'Installing headers and runtime into addon libs/libvlc'
-	Reset-Directory $TargetIncludeDirectory
-} else {
-	Write-Step 'Installing runtime into addon libs/libvlc (keeping existing headers)'
-	Ensure-Directory $TargetIncludeDirectory
-}
+Write-Step 'Installing headers and runtime into addon libs/libvlc'
+Reset-Directory $TargetIncludeDirectory
 Ensure-Directory $TargetLibraryDirectory
-
-if (-not [string]::IsNullOrWhiteSpace($IncludeRoot)) {
-	Copy-HeadersFromIncludeRoot $IncludeRoot $TargetIncludeDirectory
-}
+Copy-HeadersFromIncludeRoot $IncludeRoot $TargetIncludeDirectory
 
 Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory 'libvlc.lib') -Force
 Copy-Item -LiteralPath $LibvlcDll -Destination (Join-Path $TargetLibraryDirectory 'libvlc.dll') -Force
@@ -364,12 +295,8 @@ Copy-DirectoryContents $PluginsSourceRoot $TargetPluginsDirectory
 Copy-DirectoryContents $LuaSourceRoot $TargetLuaDirectory
 
 if (-not $KeepArchive) {
-	if (Test-Path -LiteralPath $ArchivePath) {
-		Remove-Item -LiteralPath $ArchivePath -Force
-	}
-	if (Test-Path -LiteralPath $HeaderArchivePath) {
-		Remove-Item -LiteralPath $HeaderArchivePath -Force
-	}
+	if (Test-Path -LiteralPath $ArchivePath) { Remove-Item -LiteralPath $ArchivePath -Force }
+	if (Test-Path -LiteralPath $HeaderArchivePath) { Remove-Item -LiteralPath $HeaderArchivePath -Force }
 }
 
 if (-not $KeepExtracted -and (Test-Path -LiteralPath $TempRoot)) {
@@ -382,6 +309,3 @@ Write-Host 'Installed libvlc into:' -ForegroundColor Green
 Write-Host "  $TargetIncludeDirectory"
 Write-Host "  $TargetLibraryDirectory"
 Write-Host "  runtime DLLs in $TargetLibraryDirectory"
-
-
-
