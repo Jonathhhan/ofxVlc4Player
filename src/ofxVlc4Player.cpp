@@ -1199,6 +1199,11 @@ void * ofxVlc4Player::get_proc_address(void * data, const char * name) {
 
 void ofxVlc4Player::draw(float x, float y, float w, float h) {
 	std::lock_guard<std::mutex> lock(videoMutex);
+	const libvlc_state_t state = mediaPlayer ? libvlc_media_player_get_state(mediaPlayer) : libvlc_Stopped;
+	if (isStoppedOrIdleState(state)) {
+		return;
+	}
+
 	const unsigned currentVideoWidth = videoWidth.load();
 	const unsigned currentVideoHeight = videoHeight.load();
 	if (fbo.isAllocated() && currentVideoWidth > 0 && currentVideoHeight > 0) {
@@ -1208,6 +1213,11 @@ void ofxVlc4Player::draw(float x, float y, float w, float h) {
 
 void ofxVlc4Player::draw(float x, float y) {
 	std::lock_guard<std::mutex> lock(videoMutex);
+	const libvlc_state_t state = mediaPlayer ? libvlc_media_player_get_state(mediaPlayer) : libvlc_Stopped;
+	if (isStoppedOrIdleState(state)) {
+		return;
+	}
+
 	const unsigned currentVideoWidth = videoWidth.load();
 	const unsigned currentVideoHeight = videoHeight.load();
 	if (fbo.isAllocated() && currentVideoWidth > 0 && currentVideoHeight > 0) {
