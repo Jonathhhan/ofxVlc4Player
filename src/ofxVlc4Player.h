@@ -4,7 +4,7 @@
 #include "ofxVlc4PlayerRingBuffer.h"
 #include "ofMain.h"
 #include "GLFW/glfw3.h"
-#include "vlc.h"
+#include "vlc/vlc.h"
 
 #include <atomic>
 #include <initializer_list>

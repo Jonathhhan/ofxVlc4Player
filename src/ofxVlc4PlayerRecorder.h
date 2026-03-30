@@ -2,7 +2,7 @@
 
 #include "ofMain.h"
 #include "ofxVlc4PlayerRingBuffer.h"
-#include "vlc.h"
+#include "vlc/vlc.h"
 
 #include <atomic>
 #include <cstdint>

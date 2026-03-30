@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PS1_SCRIPT="${SCRIPT_DIR}/install-libvlc-from-github.ps1"
+PS1_SCRIPT="${SCRIPT_DIR}/install-libvlc.ps1"
 ADDON_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 if command -v cygpath >/dev/null 2>&1; then
