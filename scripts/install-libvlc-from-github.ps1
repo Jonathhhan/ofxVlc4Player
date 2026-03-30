@@ -1,12 +1,9 @@
-<#
+<##
 .SYNOPSIS
 Downloads a libvlc release archive and installs it into the addon-local libvlc layout.
 
 .EXAMPLE
 .\install-libvlc-from-github.ps1
-
-.EXAMPLE
-.\install-libvlc-from-github.ps1 -InstallRuntimeDlls
 
 .EXAMPLE
 .\install-libvlc-from-github.ps1 -ZipUrl "https://artifacts.videolan.org/vlc/nightly-win64-llvm/20260312-0501/vlc-4.0.0-dev-win64-259d873b.zip"
@@ -18,8 +15,6 @@ param(
 	[string]$NightlyIndexUrl = "https://artifacts.videolan.org/vlc/nightly-win64-llvm/",
 
 	[string]$AddonRoot = "",
-
-	[switch]$InstallRuntimeDlls,
 
 	[switch]$KeepArchive,
 
@@ -100,15 +95,6 @@ function Find-FirstFileByName([string]$Root, [string]$Name) {
 	return $Match.FullName
 }
 
-function Find-FirstDirectoryByName([string]$Root, [string]$Name) {
-	$Match = Get-ChildItem -LiteralPath $Root -Recurse -Directory | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
-	if ($null -eq $Match) {
-		return $null
-	}
-
-	return $Match.FullName
-}
-
 function Copy-OptionalFile([string]$Source, [string]$DestinationDirectory) {
 	if ([string]::IsNullOrWhiteSpace($Source) -or -not (Test-Path -LiteralPath $Source)) {
 		return
@@ -143,9 +129,9 @@ function Resolve-LatestNightlyZipUrl([string]$IndexUrl) {
 
 Write-Step "Preparing install paths"
 
-$LibVlcRoot = Join-Path $AddonRoot "libs\\libvlc"
+$LibVlcRoot = Join-Path $AddonRoot "libs\libvlc"
 $TargetIncludeDirectory = Join-Path $LibVlcRoot "include"
-$TargetLibraryDirectory = Join-Path $LibVlcRoot "lib\\vs"
+$TargetLibraryDirectory = Join-Path $LibVlcRoot "lib\vs"
 
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ofxVlc4Player-libvlc-" + [guid]::NewGuid().ToString("N"))
 $ArchivePath = Join-Path $TempRoot "libvlc.zip"
@@ -173,7 +159,7 @@ if ($TopLevelDirectories.Count -eq 1) {
 }
 
 $IncludeRoot = Find-FirstPath @(
-	(Join-Path $ContentRoot "sdk\\include"),
+	(Join-Path $ContentRoot "sdk\include"),
 	(Join-Path $ContentRoot "include")
 )
 
@@ -196,6 +182,10 @@ $LibvlcDll = Find-FirstFileByName $ContentRoot "libvlc.dll"
 $LibvlccoreDll = Find-FirstFileByName $ContentRoot "libvlccore.dll"
 $AxvlcDll = Find-FirstFileByName $ContentRoot "axvlc.dll"
 
+if ([string]::IsNullOrWhiteSpace($LibvlcDll) -or [string]::IsNullOrWhiteSpace($LibvlccoreDll)) {
+	throw "Could not find libvlc.dll and libvlccore.dll in the downloaded archive."
+}
+
 Write-Step "Installing headers and import libraries into addon libs/libvlc"
 Reset-Directory $TargetIncludeDirectory
 Ensure-Directory $TargetLibraryDirectory
@@ -217,16 +207,10 @@ if (-not [string]::IsNullOrWhiteSpace($NestedHeaderSourceRoot)) {
 Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory "libvlc.lib") -Force
 Copy-Item -LiteralPath $LibvlccoreImportLibrary -Destination (Join-Path $TargetLibraryDirectory "libvlccore.lib") -Force
 
-if ($InstallRuntimeDlls) {
-	if ([string]::IsNullOrWhiteSpace($LibvlcDll) -or [string]::IsNullOrWhiteSpace($LibvlccoreDll)) {
-		throw "Could not find libvlc.dll and libvlccore.dll in the downloaded archive."
-	}
-
-	Write-Step "Installing runtime DLLs into addon libs/libvlc/lib/vs"
-	Copy-Item -LiteralPath $LibvlcDll -Destination (Join-Path $TargetLibraryDirectory "libvlc.dll") -Force
-	Copy-Item -LiteralPath $LibvlccoreDll -Destination (Join-Path $TargetLibraryDirectory "libvlccore.dll") -Force
-	Copy-OptionalFile $AxvlcDll $TargetLibraryDirectory
-}
+Write-Step "Installing runtime DLLs into addon libs/libvlc/lib/vs"
+Copy-Item -LiteralPath $LibvlcDll -Destination (Join-Path $TargetLibraryDirectory "libvlc.dll") -Force
+Copy-Item -LiteralPath $LibvlccoreDll -Destination (Join-Path $TargetLibraryDirectory "libvlccore.dll") -Force
+Copy-OptionalFile $AxvlcDll $TargetLibraryDirectory
 
 if (-not $KeepArchive -and (Test-Path -LiteralPath $ArchivePath)) {
 	Remove-Item -LiteralPath $ArchivePath -Force
@@ -241,6 +225,4 @@ Write-Host ""
 Write-Host "Installed libvlc into:" -ForegroundColor Green
 Write-Host "  $TargetIncludeDirectory"
 Write-Host "  $TargetLibraryDirectory"
-if ($InstallRuntimeDlls) {
-	Write-Host "  runtime DLLs in $TargetLibraryDirectory"
-}
+Write-Host "  runtime DLLs in $TargetLibraryDirectory"
