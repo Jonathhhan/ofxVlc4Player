@@ -88,7 +88,8 @@ void drawTexturePreview(
 	if (!texture.isAllocated() || displayWidth <= 0.0f || displayHeight <= 0.0f) {
 		const ImVec2 screenStart = ImGui::GetCursorScreenPos();
 		const ImVec2 fillSize(std::max(1.0f, availableRegion.x), std::max(1.0f, availableRegion.y));
-		ImGui::GetWindowDrawList()->AddRectFilled(
+		ImDrawList * drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(
 			screenStart,
 			ImVec2(screenStart.x + fillSize.x, screenStart.y + fillSize.y),
 			ImGui::GetColorU32(kUiChildBg));
