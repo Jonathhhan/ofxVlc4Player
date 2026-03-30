@@ -1,2 +1,0 @@
-ofxProjectM
-ofxVlc4Player
