@@ -18,7 +18,7 @@ meta:
 	ADDON_NAME = ofxVlc4Player
 
 common:
-	ADDON_INCLUDES = libs/libvlc/include
+	ADDON_INCLUDES += libs/libvlc/include
 
 
 linux64:
