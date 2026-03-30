@@ -33,7 +33,7 @@ linuxarmv7l:
 msys2:
 
 vs:
-	ADDON_LIBS = libs/libvlc/vs/libvlc.lib
+	ADDON_LIBS += libs/libvlc/lib/vs/libvlc.lib
 
 
 android/armeabi:
