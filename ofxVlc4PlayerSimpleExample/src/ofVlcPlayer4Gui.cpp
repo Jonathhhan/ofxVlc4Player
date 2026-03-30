@@ -86,15 +86,14 @@ void drawTexturePreview(
 	const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
 
 	if (!texture.isAllocated() || displayWidth <= 0.0f || displayHeight <= 0.0f) {
-		const char * unavailableText = "Not available";
-		const float unavailableWidth = ImGui::CalcTextSize(unavailableText).x;
-		const float unavailableHeight = ImGui::GetTextLineHeight();
-		if (availableRegion.x > unavailableWidth || availableRegion.y > unavailableHeight) {
-			ImGui::SetCursorPos(ImVec2(
-				contentStart.x + std::max(0.0f, (availableRegion.x - unavailableWidth) * 0.5f),
-				contentStart.y + std::max(0.0f, (availableRegion.y - unavailableHeight) * 0.5f)));
-		}
-		ImGui::TextDisabled("%s", unavailableText);
+		const ImVec2 screenStart = ImGui::GetCursorScreenPos();
+		const ImVec2 fillSize(std::max(1.0f, availableRegion.x), std::max(1.0f, availableRegion.y));
+		ImGui::GetWindowDrawList()->AddRectFilled(
+			screenStart,
+			ImVec2(screenStart.x + fillSize.x, screenStart.y + fillSize.y),
+			IM_COL32(0, 0, 0, 255));
+		ImGui::SetCursorPos(contentStart);
+		ImGui::Dummy(fillSize);
 		return;
 	}
 

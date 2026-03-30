@@ -98,6 +98,7 @@ struct HiddenVideoPlayerState {
 	int currentIndex = -1;
 	ofxVlc4Player::PlaybackMode playbackMode = ofxVlc4Player::PlaybackMode::Default;
 	bool wasPlaying = false;
+	bool wasStopped = true;
 };
 
 HiddenVideoPlayerState captureHiddenVideoPlayerState(ofxVlc4Player & player) {
@@ -106,6 +107,7 @@ HiddenVideoPlayerState captureHiddenVideoPlayerState(ofxVlc4Player & player) {
 	state.currentIndex = player.getCurrentIndex();
 	state.playbackMode = player.getPlaybackMode();
 	state.wasPlaying = player.isPlaying();
+	state.wasStopped = player.isStopped();
 	return state;
 }
 
@@ -116,9 +118,14 @@ void restoreHiddenVideoPlayerState(ofxVlc4Player & player, const HiddenVideoPlay
 	}
 	player.setPlaybackMode(state.playbackMode);
 
-	if (state.wasPlaying && !state.playlist.empty()) {
+	if (!state.playlist.empty() && state.currentIndex >= 0) {
 		const int restoreIndex = ofClamp(state.currentIndex, 0, static_cast<int>(state.playlist.size()) - 1);
-		player.playIndex(restoreIndex);
+		if (state.wasPlaying) {
+			player.playIndex(restoreIndex);
+		} else if (!state.wasStopped) {
+			player.playIndex(restoreIndex);
+			player.pause();
+		}
 	}
 }
 
@@ -255,7 +262,11 @@ bool ensureFboDimensions(ofFbo & fbo, int width, int height) {
 //--------------------------------------------------------------
 void ofApp::update() {
 	player.update();
-	videoPlayer.update();
+	if (usesHiddenProjectMVideoSource(projectMTextureSourceMode) ||
+		hiddenProjectMVideoSourceWasActive ||
+		!videoPlayer.isStopped()) {
+		videoPlayer.update();
+	}
 	syncHiddenProjectMVideoPlayer();
 	ensureProjectMInitialized();
 	const bool renderProjectMPreview = remoteGui.shouldRenderProjectMPreview();
@@ -405,12 +416,14 @@ void ofApp::refreshProjectMSourceTexture() {
 
 	ofxVlc4Player * projectMSourcePlayer = getProjectMVideoSourcePlayer(projectMTextureSourceMode, player, videoPlayer);
 	if (!projectMSourcePlayer) {
+		clearAllocatedFbo(projectMSourceFbo);
 		return;
 	}
 
 	const float sourceWidth = projectMSourcePlayer->getWidth();
 	const float sourceHeight = projectMSourcePlayer->getHeight();
 	if (sourceWidth <= 0.0f || sourceHeight <= 0.0f) {
+		clearAllocatedFbo(projectMSourceFbo);
 		return;
 	}
 
@@ -459,7 +472,7 @@ void ofApp::syncHiddenProjectMVideoPlayer() {
 	}
 
 	hiddenProjectMVideoSourceWasActive = true;
-	if (!videoPlayer.getPlaylist().empty() && videoPlayer.isStopped()) {
+	if (!videoPlayer.getPlaylist().empty() && !videoPlayer.isPlaying()) {
 		const int currentIndex = videoPlayer.getCurrentIndex();
 		videoPlayer.playIndex(currentIndex >= 0 ? currentIndex : 0);
 	}
