@@ -98,6 +98,7 @@ ofxVlc4Player::~ofxVlc4Player() {
 
 void ofxVlc4Player::update() {
 	updateVideoResources();
+	refreshDisplayAspectRatio();
 	refreshExposedTexture();
 	updateRecorder();
 
@@ -500,8 +501,7 @@ void ofxVlc4Player::clearCurrentMedia() {
 
 	{
 		std::lock_guard<std::mutex> lock(videoMutex);
-		videoWidth.store(0);
-		videoHeight.store(0);
+		displayAspectRatio.store(1.0f);
 		isVideoLoaded.store(false);
 		clearAllocatedFbo(fbo);
 		clearAllocatedFbo(exposedTextureFbo);
@@ -1050,7 +1050,14 @@ float ofxVlc4Player::getHeight() const {
 }
 
 float ofxVlc4Player::getWidth() const {
-	return static_cast<float>(videoWidth.load());
+	const float rawWidth = static_cast<float>(videoWidth.load());
+	const float rawHeight = static_cast<float>(videoHeight.load());
+	if (rawWidth <= 0.0f || rawHeight <= 0.0f) {
+		return rawWidth;
+	}
+
+	const float aspect = std::max(displayAspectRatio.load(), 0.0001f);
+	return rawHeight * aspect;
 }
 
 bool ofxVlc4Player::isPlaying() {
@@ -1398,6 +1405,43 @@ uint64_t ofxVlc4Player::getAudioOverrunCount() const {
 
 uint64_t ofxVlc4Player::getAudioUnderrunCount() const {
 	return ringBuffer.getUnderrunCount();
+}
+
+void ofxVlc4Player::refreshDisplayAspectRatio() {
+	if (!mediaPlayer) {
+		displayAspectRatio.store(1.0f);
+		return;
+	}
+
+	const unsigned currentVideoWidth = videoWidth.load();
+	const unsigned currentVideoHeight = videoHeight.load();
+	if (currentVideoWidth == 0 || currentVideoHeight == 0) {
+		displayAspectRatio.store(1.0f);
+		return;
+	}
+
+	float aspect = static_cast<float>(currentVideoWidth) / static_cast<float>(currentVideoHeight);
+	char * aspectText = libvlc_video_get_aspect_ratio(mediaPlayer);
+	if (aspectText) {
+		std::string value(aspectText);
+		libvlc_free(aspectText);
+
+		const size_t separator = value.find(':');
+		if (separator != std::string::npos) {
+			const float left = static_cast<float>(std::atof(value.substr(0, separator).c_str()));
+			const float right = static_cast<float>(std::atof(value.substr(separator + 1).c_str()));
+			if (left > 0.0f && right > 0.0f) {
+				aspect = left / right;
+			}
+		} else {
+			const float parsed = static_cast<float>(std::atof(value.c_str()));
+			if (parsed > 0.0f) {
+				aspect = parsed;
+			}
+		}
+	}
+
+	displayAspectRatio.store(std::max(aspect, 0.0001f));
 }
 
 bool ofxVlc4Player::videoReadyEvent() {

@@ -34,6 +34,7 @@ private:
 
 	std::atomic<unsigned> videoWidth { 0 };
 	std::atomic<unsigned> videoHeight { 0 };
+	std::atomic<float> displayAspectRatio { 1.0f };
 	unsigned allocatedVideoWidth = 1;
 	unsigned allocatedVideoHeight = 1;
 	std::atomic<int> channels { 0 };
@@ -107,8 +108,9 @@ private:
 	void activatePlaylistIndexImmediate(int index, bool shouldPlay);
 	void clearCurrentMedia();
 	void handlePlaybackEnded();
-	int getNextShuffleIndex() const;
 	void refreshExposedTexture();
+	void refreshDisplayAspectRatio();
+	int getNextShuffleIndex() const;
 
 public:
 	ofxVlc4Player();

@@ -121,10 +121,15 @@ function Copy-DirectoryContents([string]$SourceDirectory, [string]$TargetDirecto
 }
 
 function Copy-HeadersFromIncludeRoot([string]$SourceIncludeDirectory, [string]$TargetIncludeDirectory) {
+	$NestedIncludeDirectory = Join-Path $TargetIncludeDirectory 'vlc'
+	Ensure-Directory $TargetIncludeDirectory
+	Ensure-Directory $NestedIncludeDirectory
+
 	Get-ChildItem -LiteralPath $SourceIncludeDirectory -File |
 		Where-Object { $_.Extension -in @('.h', '.hpp') } |
 		ForEach-Object {
 			Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetIncludeDirectory $_.Name) -Force
+			Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $NestedIncludeDirectory $_.Name) -Force
 		}
 }
 
