@@ -126,11 +126,18 @@ function Resolve-IncludeRoot([string]$Root) {
 	}
 
 	$IncludeRoot = Find-FirstPath @(
+		(Join-Path $Root 'include\vlc'),
 		(Join-Path $Root 'include'),
+		(Join-Path $Root 'sdk\include\vlc'),
 		(Join-Path $Root 'sdk\include')
 	)
 	if (-not [string]::IsNullOrWhiteSpace($IncludeRoot)) {
-		return $IncludeRoot
+		$HasPublicHeaders =
+			(Test-Path -LiteralPath (Join-Path $IncludeRoot 'vlc.h')) -or
+			($null -ne (Get-ChildItem -LiteralPath $IncludeRoot -File -Filter 'libvlc*.h' -ErrorAction SilentlyContinue | Select-Object -First 1))
+		if ($HasPublicHeaders) {
+			return $IncludeRoot
+		}
 	}
 
 	$LibvlcHeader = Find-FirstFileByName $Root 'libvlc.h'
@@ -155,17 +162,13 @@ function Copy-DirectoryContents([string]$SourceDirectory, [string]$TargetDirecto
 	Copy-Item -Path (Join-Path $SourceDirectory '*') -Destination $TargetDirectory -Recurse -Force
 }
 
-function Copy-PublicLibVlcHeaders([string]$SourceIncludeDirectory, [string]$TargetIncludeDirectory) {
+function Copy-HeadersFromIncludeRoot([string]$SourceIncludeDirectory, [string]$TargetIncludeDirectory) {
 	if ([string]::IsNullOrWhiteSpace($SourceIncludeDirectory) -or -not (Test-Path -LiteralPath $SourceIncludeDirectory)) {
 		return
 	}
 
 	Get-ChildItem -LiteralPath $SourceIncludeDirectory -File |
-		Where-Object {
-			$_.Name -eq 'vlc.h' -or
-			$_.Name -like 'libvlc*.h' -or
-			$_.Name -like 'libvlc*.hpp'
-		} |
+		Where-Object { $_.Extension -in @('.h', '.hpp') } |
 		ForEach-Object {
 			Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TargetIncludeDirectory $_.Name) -Force
 		}
@@ -350,7 +353,7 @@ if (-not [string]::IsNullOrWhiteSpace($IncludeRoot)) {
 Ensure-Directory $TargetLibraryDirectory
 
 if (-not [string]::IsNullOrWhiteSpace($IncludeRoot)) {
-	Copy-PublicLibVlcHeaders $IncludeRoot $TargetIncludeDirectory
+	Copy-HeadersFromIncludeRoot $IncludeRoot $TargetIncludeDirectory
 }
 
 Copy-Item -LiteralPath $LibvlcImportLibrary -Destination (Join-Path $TargetLibraryDirectory 'libvlc.lib') -Force
@@ -379,4 +382,6 @@ Write-Host 'Installed libvlc into:' -ForegroundColor Green
 Write-Host "  $TargetIncludeDirectory"
 Write-Host "  $TargetLibraryDirectory"
 Write-Host "  runtime DLLs in $TargetLibraryDirectory"
+
+
 
