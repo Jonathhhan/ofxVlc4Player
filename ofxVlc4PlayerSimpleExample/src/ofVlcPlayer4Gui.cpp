@@ -91,7 +91,7 @@ void drawTexturePreview(
 		ImGui::GetWindowDrawList()->AddRectFilled(
 			screenStart,
 			ImVec2(screenStart.x + fillSize.x, screenStart.y + fillSize.y),
-			IM_COL32(0, 0, 0, 255));
+			ImGui::GetColorU32(kUiChildBg));
 		ImGui::SetCursorPos(contentStart);
 		ImGui::Dummy(fillSize);
 		return;
