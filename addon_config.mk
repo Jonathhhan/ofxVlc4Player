@@ -18,6 +18,8 @@ meta:
 	ADDON_NAME = ofxVlc4Player
 
 common:
+	ADDON_INCLUDES = libs/libvlc/include
+
 
 linux64:
 	ADDON_PKG_CONFIG_LIBRARIES = libvlc
@@ -31,6 +33,8 @@ linuxarmv7l:
 msys2:
 
 vs:
+	ADDON_LIBS = libs/libvlc/vs/libvlc.lib
+
 
 android/armeabi:
 
