@@ -28,9 +28,11 @@ public:
 	void loadPlayerProjectMTexture();
 	void ensureFboSize(ofFbo & fbo, int width, int height);
 	void drawPlayerToFbo(ofxVlc4Player & sourcePlayer, ofFbo & targetFbo, float width, float height, bool preserveAspect);
+	void refreshProjectMSourceTexture();
 	void applyProjectMTexture();
 	bool hasProjectMSourceSize() const;
 	void ensureProjectMInitialized();
+	void ensureHiddenProjectMVideoPlayerSeeded();
 	void syncHiddenProjectMVideoPlayer();
 
 	void audioOut(ofSoundBuffer & buffer);
@@ -46,6 +48,7 @@ public:
 	ofFbo videoPreviewFbo;
 	ofFbo projectMSourceFbo;
 	std::string projectMCustomTexturePath;
+	std::string hiddenProjectMSeedPath;
 	float videoPreviewWidth = 0.0f;
 	float videoPreviewHeight = 0.0f;
 

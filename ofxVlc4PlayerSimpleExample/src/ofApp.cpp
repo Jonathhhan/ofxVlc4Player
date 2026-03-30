@@ -151,6 +151,12 @@ void restartCurrentProjectMPreset(ofxProjectM & projectM) {
 	}
 }
 
+void restartCurrentProjectMPresetIfInitialized(ofxProjectM & projectM, bool projectMInitialized) {
+	if (projectMInitialized) {
+		restartCurrentProjectMPreset(projectM);
+	}
+}
+
 bool ensureLoadedImage(ofImage & image, const std::string & path) {
 	if (image.isAllocated()) {
 		return true;
@@ -212,7 +218,8 @@ void ofApp::setup() {
 	// -------- VIDEO PLAYER (hidden, for projectM)
 	videoPlayer.setAudioCaptureEnabled(false);
 	videoPlayer.init(hidden_vlc_argc, hidden_vlc_argv);
-	videoPlayer.addPathToPlaylist(ofToDataPath("fingers.mp4", true), kSeedExtensions);
+	hiddenProjectMSeedPath = ofToDataPath("fingers.mp4", true);
+	videoPlayer.addPathToPlaylist(hiddenProjectMSeedPath, kSeedExtensions);
 	videoPlayer.setPlaybackMode(ofxVlc4Player::PlaybackMode::Repeat);
 	syncHiddenProjectMVideoPlayer();
 }
@@ -392,29 +399,66 @@ void ofApp::drawPlayerToFbo(ofxVlc4Player & sourcePlayer, ofFbo & targetFbo, flo
 	targetFbo.end();
 }
 
+void ofApp::refreshProjectMSourceTexture() {
+	if (!usesProjectMVideoSource(projectMTextureSourceMode)) {
+		return;
+	}
+
+	ofxVlc4Player * projectMSourcePlayer = getProjectMVideoSourcePlayer(projectMTextureSourceMode, player, videoPlayer);
+	if (!projectMSourcePlayer) {
+		return;
+	}
+
+	const float sourceWidth = projectMSourcePlayer->getWidth();
+	const float sourceHeight = projectMSourcePlayer->getHeight();
+	if (sourceWidth <= 0.0f || sourceHeight <= 0.0f) {
+		return;
+	}
+
+	drawPlayerToFbo(
+		*projectMSourcePlayer,
+		projectMSourceFbo,
+		sourceWidth,
+		sourceHeight,
+		false);
+}
+
 void ofApp::applyProjectMTexture() {
 	syncHiddenProjectMVideoPlayer();
 
 	switch (projectMTextureSourceMode) {
 	case ProjectMTextureSourceMode::InternalTextures:
 		projectM.useInternalTextureOnly();
+		projectM.resetTextures();
 		break;
 	case ProjectMTextureSourceMode::CustomImage:
 		if (projectMCustomTextureImage.isAllocated()) {
 			drawProjectMSourceImageToFbo(projectMSourceFbo, projectMCustomTextureImage);
 		}
 		projectM.setTexture(projectMSourceFbo.getTexture());
+		projectM.resetTextures();
 		break;
 	case ProjectMTextureSourceMode::MainPlayerVideo:
 	case ProjectMTextureSourceMode::PlayerVideo:
 	case ProjectMTextureSourceMode::CustomVideo:
+		refreshProjectMSourceTexture();
 		projectM.setTexture(projectMSourceFbo.getTexture());
+		projectM.resetTextures();
 		break;
 	}
+}
 
-	if (projectMInitialized) {
-		restartCurrentProjectMPreset(projectM);
+void ofApp::ensureHiddenProjectMVideoPlayerSeeded() {
+	if (!videoPlayer.getPlaylist().empty()) {
+		return;
 	}
+
+	if (hiddenProjectMSeedPath.empty()) {
+		return;
+	}
+
+	videoPlayer.addToPlaylist(hiddenProjectMSeedPath);
+	videoPlayer.setPlaybackMode(ofxVlc4Player::PlaybackMode::Repeat);
 }
 
 void ofApp::syncHiddenProjectMVideoPlayer() {
@@ -429,6 +473,10 @@ void ofApp::syncHiddenProjectMVideoPlayer() {
 	}
 
 	hiddenProjectMVideoSourceWasActive = true;
+	if (projectMTextureSourceMode == ProjectMTextureSourceMode::PlayerVideo) {
+		ensureHiddenProjectMVideoPlayerSeeded();
+	}
+
 	if (!videoPlayer.getPlaylist().empty() && videoPlayer.isStopped()) {
 		const int currentIndex = videoPlayer.getCurrentIndex();
 		videoPlayer.playIndex(currentIndex >= 0 ? currentIndex : 0);
@@ -471,11 +519,13 @@ void ofApp::reloadProjectMTextures(bool useStandardTextures) {
 	if (useStandardTextures) {
 		projectMTextureSourceMode = ProjectMTextureSourceMode::InternalTextures;
 		applyProjectMTexture();
+		restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 		return;
 	}
 
 	if (usesProjectMVideoSource(projectMTextureSourceMode)) {
 		applyProjectMTexture();
+		restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 		return;
 	}
 
@@ -484,11 +534,13 @@ void ofApp::reloadProjectMTextures(bool useStandardTextures) {
 	}
 
 	applyProjectMTexture();
+	restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 }
 
 void ofApp::loadPlayerProjectMTexture() {
 	projectMTextureSourceMode = ProjectMTextureSourceMode::MainPlayerVideo;
 	applyProjectMTexture();
+	restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 }
 
 bool ofApp::loadCustomProjectMTexture(const std::string & rawPath) {
@@ -521,6 +573,7 @@ bool ofApp::loadCustomProjectMTexture(const std::string & rawPath) {
 		projectMCustomTexturePath = resolvedPath;
 		projectMTextureSourceMode = ProjectMTextureSourceMode::CustomVideo;
 		applyProjectMTexture();
+		restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 		return true;
 	}
 
@@ -539,5 +592,6 @@ bool ofApp::loadCustomProjectMTexture(const std::string & rawPath) {
 	projectMCustomTexturePath = resolvedPath;
 	projectMTextureSourceMode = ProjectMTextureSourceMode::CustomImage;
 	applyProjectMTexture();
+	restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 	return true;
 }
