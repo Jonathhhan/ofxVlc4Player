@@ -64,6 +64,15 @@ Example environment setup:
 export LIBVA_DRIVER_NAME=nvidia
 ```
 
-## Example dependency
+## Example dependencies
 
-The example app also depends on [ofxProjectM](https://github.com/Jonathhhan/ofxProjectM).
+The example app also depends on:
+
+- [ofxProjectM](https://github.com/Jonathhhan/ofxProjectM)
+- [ofxImGui](https://github.com/jvcleave/ofxImGui), and it must be checked out on the [`develop` branch](https://github.com/jvcleave/ofxImGui/tree/develop)
+
+Example:
+
+```bash
+git clone --branch develop https://github.com/jvcleave/ofxImGui.git
+```
