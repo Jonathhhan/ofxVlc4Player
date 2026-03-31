@@ -554,6 +554,8 @@ void ofApp::setup() {
 
 	// -------- MAIN PLAYER (GUI controlled)
 	player.setAudioCaptureEnabled(true);
+	// Keep the demux workaround explicit in the example while we validate the GL stability issue.
+	player.setForceAvformatDemuxEnabled(true);
 	player.init(vlc_argc, vlc_argv);
 	player.addPathToPlaylist(ofToDataPath("fingers.mp4", true), kSeedExtensions);
 
