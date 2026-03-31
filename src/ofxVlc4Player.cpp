@@ -161,6 +161,19 @@ bool shouldLog(ofLogLevel level) {
 	return configuredLevel != OF_LOG_SILENT && level >= configuredLevel;
 }
 
+bool nearlyEqual(float a, float b, float epsilon = 0.0001f) {
+	return std::abs(a - b) <= epsilon;
+}
+
+std::string formatAdjustmentValue(float value, int precision = 1, const char * suffix = nullptr) {
+	std::ostringstream stream;
+	stream << std::fixed << std::setprecision(precision) << value;
+	if (suffix && *suffix) {
+		stream << suffix;
+	}
+	return stream.str();
+}
+
 void appendMetadataValue(
 	std::vector<std::pair<std::string, std::string>> & metadata,
 	const std::string & label,
@@ -480,6 +493,7 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 	}
 
 	applyEqualizerSettings();
+	applyVideoAdjustments();
 	applyVideoProjectionMode();
 	applyVideoStereoMode();
 	applyVideoViewpoint();
@@ -1435,6 +1449,12 @@ void ofxVlc4Player::applyEqualizerSettings() {
 	libvlc_audio_equalizer_release(equalizer);
 }
 
+void ofxVlc4Player::applyVideoAdjustments() {
+	// The example applies video adjustments in a post shader so the custom OpenGL
+	// output path behaves consistently during playback. The player still owns the
+	// adjustment state and exposes it to consumers through the getters/setters.
+}
+
 void ofxVlc4Player::applyVideoProjectionMode() {
 	if (!mediaPlayer) {
 		return;
@@ -1798,6 +1818,130 @@ void ofxVlc4Player::resetEqualizer() {
 	applyEqualizerSettings();
 	setStatus("Equalizer reset.");
 	logNotice("Equalizer reset.");
+}
+
+bool ofxVlc4Player::isVideoAdjustmentsEnabled() const {
+	return videoAdjustmentsEnabled;
+}
+
+void ofxVlc4Player::setVideoAdjustmentsEnabled(bool enabled) {
+	if (videoAdjustmentsEnabled == enabled) {
+		return;
+	}
+
+	videoAdjustmentsEnabled = enabled;
+	applyVideoAdjustments();
+	setStatus(std::string("Video adjustments ") + (enabled ? "enabled." : "disabled."));
+	logNotice(std::string("Video adjustments ") + (enabled ? "enabled." : "disabled."));
+}
+
+float ofxVlc4Player::getVideoContrast() const {
+	return videoAdjustContrast;
+}
+
+void ofxVlc4Player::setVideoContrast(float contrast) {
+	const float clampedContrast = ofClamp(contrast, 0.0f, 2.0f);
+	const bool wasEnabled = videoAdjustmentsEnabled;
+	if (wasEnabled && nearlyEqual(videoAdjustContrast, clampedContrast)) {
+		return;
+	}
+
+	videoAdjustmentsEnabled = true;
+	videoAdjustContrast = clampedContrast;
+	applyVideoAdjustments();
+	setStatus("Video contrast set.");
+	logVerbose("Video contrast: " + formatAdjustmentValue(videoAdjustContrast) + ".");
+}
+
+float ofxVlc4Player::getVideoBrightness() const {
+	return videoAdjustBrightness;
+}
+
+void ofxVlc4Player::setVideoBrightness(float brightness) {
+	const float clampedBrightness = ofClamp(brightness, 0.0f, 2.0f);
+	const bool wasEnabled = videoAdjustmentsEnabled;
+	if (wasEnabled && nearlyEqual(videoAdjustBrightness, clampedBrightness)) {
+		return;
+	}
+
+	videoAdjustmentsEnabled = true;
+	videoAdjustBrightness = clampedBrightness;
+	applyVideoAdjustments();
+	setStatus("Video brightness set.");
+	logVerbose("Video brightness: " + formatAdjustmentValue(videoAdjustBrightness) + ".");
+}
+
+float ofxVlc4Player::getVideoHue() const {
+	return videoAdjustHue;
+}
+
+void ofxVlc4Player::setVideoHue(float hue) {
+	float clampedHue = ofClamp(hue, -180.0f, 180.0f);
+	if (clampedHue < 0.0f) {
+		clampedHue += 360.0f;
+	}
+	const bool wasEnabled = videoAdjustmentsEnabled;
+	if (wasEnabled && nearlyEqual(videoAdjustHue, clampedHue)) {
+		return;
+	}
+
+	videoAdjustmentsEnabled = true;
+	videoAdjustHue = clampedHue;
+	applyVideoAdjustments();
+	setStatus("Video hue set.");
+	float displayHue = videoAdjustHue;
+	if (displayHue > 180.0f) {
+		displayHue -= 360.0f;
+	}
+	logVerbose("Video hue: " + formatAdjustmentValue(displayHue, 0, " deg") + ".");
+}
+
+float ofxVlc4Player::getVideoSaturation() const {
+	return videoAdjustSaturation;
+}
+
+void ofxVlc4Player::setVideoSaturation(float saturation) {
+	const float clampedSaturation = ofClamp(saturation, 0.0f, 3.0f);
+	const bool wasEnabled = videoAdjustmentsEnabled;
+	if (wasEnabled && nearlyEqual(videoAdjustSaturation, clampedSaturation)) {
+		return;
+	}
+
+	videoAdjustmentsEnabled = true;
+	videoAdjustSaturation = clampedSaturation;
+	applyVideoAdjustments();
+	setStatus("Video saturation set.");
+	logVerbose("Video saturation: " + formatAdjustmentValue(videoAdjustSaturation) + ".");
+}
+
+float ofxVlc4Player::getVideoGamma() const {
+	return videoAdjustGamma;
+}
+
+void ofxVlc4Player::setVideoGamma(float gamma) {
+	const float clampedGamma = ofClamp(gamma, 0.5f, 2.5f);
+	const bool wasEnabled = videoAdjustmentsEnabled;
+	if (wasEnabled && nearlyEqual(videoAdjustGamma, clampedGamma)) {
+		return;
+	}
+
+	videoAdjustmentsEnabled = true;
+	videoAdjustGamma = clampedGamma;
+	applyVideoAdjustments();
+	setStatus("Video gamma set.");
+	logVerbose("Video gamma: " + formatAdjustmentValue(videoAdjustGamma) + ".");
+}
+
+void ofxVlc4Player::resetVideoAdjustments() {
+	videoAdjustmentsEnabled = true;
+	videoAdjustContrast = 1.0f;
+	videoAdjustBrightness = 1.0f;
+	videoAdjustHue = 0.0f;
+	videoAdjustSaturation = 1.0f;
+	videoAdjustGamma = 1.0f;
+	applyVideoAdjustments();
+	setStatus("Video adjustments reset.");
+	logNotice("Video adjustments reset.");
 }
 
 ofxVlc4Player::VideoProjectionMode ofxVlc4Player::getVideoProjectionMode() const {
