@@ -59,10 +59,6 @@ void drawTexturePreview(
 float computePreviewWindowHeight(float sourceWidth, float sourceHeight, float windowWidth, float maxPreviewWidth);
 bool isValidPlaylistIndex(const std::vector<std::string> & playlist, int index);
 
-bool isAnaglyphModeEnabled(AnaglyphColorMode mode) {
-	return mode != AnaglyphColorMode::Disabled;
-}
-
 std::vector<int> buildVisibleEqualizerBandIndices(int bandCount) {
 	std::vector<int> visibleBandIndices;
 	if (bandCount <= 0) {
@@ -1140,7 +1136,6 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 		"Side By Side"
 	};
 	static const char * anaglyphColorModes[] = {
-		"Off",
 		"Red / Cyan",
 		"Green / Magenta",
 		"Amber / Blue"
@@ -1199,19 +1194,17 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 
 	ImGui::Separator();
 	ImGui::TextDisabled("Anaglyph");
-	{
+	ImGui::Checkbox("Anaglyph", &anaglyphEnabled);
+	if (anaglyphEnabled) {
 		int colorModeIndex = static_cast<int>(anaglyphColorMode);
 		ImGui::PushItemWidth(220.0f);
-		if (ImGui::Combo("Mode", &colorModeIndex, anaglyphColorModes, IM_ARRAYSIZE(anaglyphColorModes))) {
+		if (ImGui::Combo("Colors", &colorModeIndex, anaglyphColorModes, IM_ARRAYSIZE(anaglyphColorModes))) {
 			anaglyphColorMode = static_cast<AnaglyphColorMode>(colorModeIndex);
 		}
 		if (applyHoveredWheelStep(colorModeIndex, 0, IM_ARRAYSIZE(anaglyphColorModes) - 1)) {
 			anaglyphColorMode = static_cast<AnaglyphColorMode>(colorModeIndex);
 		}
 		ImGui::PopItemWidth();
-	}
-
-	if (isAnaglyphModeEnabled(anaglyphColorMode)) {
 		ImGui::Checkbox("Swap Eyes", &anaglyphSwapEyes);
 		if (ImGui::SliderFloat("Separation", &anaglyphEyeSeparation, -0.15f, 0.15f, "%.2f")) {
 			anaglyphEyeSeparation = ofClamp(anaglyphEyeSeparation, -0.15f, 0.15f);
@@ -1663,7 +1656,7 @@ bool ofVlcPlayer4Gui::shouldRenderProjectMPreview() const {
 }
 
 bool ofVlcPlayer4Gui::isAnaglyphEnabled() const {
-	return isAnaglyphModeEnabled(anaglyphColorMode);
+	return anaglyphEnabled;
 }
 
 AnaglyphColorMode ofVlcPlayer4Gui::getAnaglyphColorMode() const {

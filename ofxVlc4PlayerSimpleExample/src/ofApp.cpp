@@ -230,7 +230,6 @@ std::pair<glm::vec3, glm::vec3> getAnaglyphTints(AnaglyphColorMode mode) {
 			glm::vec3(1.0f, 0.75f, 0.0f),
 			glm::vec3(0.0f, 0.5f, 1.0f)
 		};
-	case AnaglyphColorMode::Disabled:
 	case AnaglyphColorMode::RedCyan:
 	default:
 		return {

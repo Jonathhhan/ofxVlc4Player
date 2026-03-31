@@ -17,8 +17,7 @@ struct MediaDisplayState {
 };
 
 enum class AnaglyphColorMode {
-	Disabled = 0,
-	RedCyan,
+	RedCyan = 0,
 	GreenMagenta,
 	AmberBlue
 };
@@ -128,7 +127,7 @@ private:
 	bool followPlaybackSelectionEnabled = true;
 	bool showRemainingTime = false;
 	bool anaglyphEnabled = false;
-	AnaglyphColorMode anaglyphColorMode = AnaglyphColorMode::Disabled;
+	AnaglyphColorMode anaglyphColorMode = AnaglyphColorMode::RedCyan;
 	bool anaglyphSwapEyes = false;
 	float anaglyphEyeSeparation = 0.0f;
 	std::vector<float> equalizerControlYs;
