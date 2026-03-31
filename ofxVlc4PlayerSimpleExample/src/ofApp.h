@@ -29,7 +29,9 @@ public:
 	bool hasProjectMSourceSize() const;
 	void ensureProjectMInitialized();
 	void setupAnaglyphShader();
-	void updateAnaglyphPreview();
+	void setupVideoAdjustShader();
+	void updateVideoAdjustPreview(const ofTexture & sourceTexture, float sourceWidth, float sourceHeight);
+	void updateAnaglyphPreview(const ofTexture & sourceTexture, float sourceWidth, float sourceHeight);
 
 	void audioOut(ofSoundBuffer & buffer);
 
@@ -43,7 +45,9 @@ public:
 	ofImage videoPreviewArtworkImage;
 	ofFbo projectMSourceFbo;
 	ofFbo videoPreviewFbo;
+	ofFbo videoAdjustPreviewFbo;
 	ofFbo anaglyphPreviewFbo;
+	ofShader videoAdjustShader;
 	ofShader anaglyphShader;
 	std::string projectMCustomTexturePath;
 	std::string videoPreviewArtworkPath;
@@ -51,6 +55,7 @@ public:
 	float videoPreviewHeight = 0.0f;
 	bool videoPreviewHasContent = false;
 	bool videoPreviewShowsVideo = false;
+	bool videoAdjustShaderReady = false;
 	bool anaglyphShaderReady = false;
 
 	int bufferSize = 128;

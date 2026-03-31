@@ -1,6 +1,9 @@
 #pragma once
 
 #include "ofMain.h"
+#ifndef OFXIMGUI_GLFW_FIX_MULTICONTEXT_SECONDARY_VP
+#define OFXIMGUI_GLFW_FIX_MULTICONTEXT_SECONDARY_VP 1
+#endif
 #include "ofxImGui.h"
 #include "ofxProjectM.h"
 #include "ofxVlc4Player.h"
@@ -74,6 +77,7 @@ private:
 		bool projectMInitialized,
 		const std::function<void()> & randomProjectMPreset);
 	void drawEqualizerSection(ofxVlc4Player & player);
+	void drawVideoAdjustmentsSection(ofxVlc4Player & player);
 	void drawVideo3DSection(ofxVlc4Player & player);
 	void drawPlaybackOptionsSection(
 		ofxVlc4Player & player,

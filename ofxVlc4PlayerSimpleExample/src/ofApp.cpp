@@ -80,6 +80,34 @@ bool hasUsableTextureSize(const ofTexture & texture) {
 		texture.getHeight() > 1.0f;
 }
 
+bool shouldUseAdjustedVideoPreview(
+	bool previewHasContent,
+	bool previewShowsVideo,
+	bool videoAdjustmentsEnabled,
+	bool shaderReady,
+	const ofFbo & previewFbo) {
+	return previewHasContent &&
+		previewShowsVideo &&
+		videoAdjustmentsEnabled &&
+		shaderReady &&
+		previewFbo.isAllocated();
+}
+
+bool shouldUseAnaglyphPreview(
+	bool previewHasContent,
+	bool previewShowsVideo,
+	bool anaglyphEnabled,
+	ofxVlc4Player::VideoStereoMode stereoMode,
+	bool shaderReady,
+	const ofFbo & previewFbo) {
+	return previewHasContent &&
+		previewShowsVideo &&
+		anaglyphEnabled &&
+		stereoMode == ofxVlc4Player::VideoStereoMode::SideBySide &&
+		shaderReady &&
+		previewFbo.isAllocated();
+}
+
 std::string resolveArtworkPath(const std::string & rawArtworkUrl) {
 	std::string artworkPath = ofTrim(rawArtworkUrl);
 	if (artworkPath.empty()) {
@@ -240,6 +268,133 @@ std::pair<glm::vec3, glm::vec3> getAnaglyphTints(AnaglyphColorMode mode) {
 }
 }
 
+void ofApp::setupVideoAdjustShader() {
+	std::string vertexSource;
+	std::string fragmentSource;
+
+	if (ofIsGLProgrammableRenderer()) {
+		vertexSource = R"(
+			#version 150
+			uniform mat4 modelViewProjectionMatrix;
+			in vec4 position;
+			in vec2 texcoord;
+			out vec2 vTexCoord;
+			void main() {
+				vTexCoord = texcoord;
+				gl_Position = modelViewProjectionMatrix * position;
+			}
+		)";
+
+		fragmentSource = R"(
+			#version 150
+			uniform sampler2D tex0;
+			uniform float brightness;
+			uniform float contrast;
+			uniform float saturation;
+			uniform float gammaValue;
+			uniform float hueDegrees;
+			in vec2 vTexCoord;
+			out vec4 outputColor;
+
+			vec3 applyHueRotation(vec3 color, float hueDegreesValue) {
+				float angle = radians(hueDegreesValue);
+				float cosA = cos(angle);
+				float sinA = sin(angle);
+
+				mat3 rgbToYiq = mat3(
+					0.299, 0.587, 0.114,
+					0.596, -0.274, -0.322,
+					0.211, -0.523, 0.312
+				);
+				mat3 yiqToRgb = mat3(
+					1.0, 0.956, 0.621,
+					1.0, -0.272, -0.647,
+					1.0, -1.106, 1.703
+				);
+
+				vec3 yiq = rgbToYiq * color;
+				vec2 iq = mat2(cosA, -sinA, sinA, cosA) * yiq.yz;
+				return yiqToRgb * vec3(yiq.x, iq.x, iq.y);
+			}
+
+			void main() {
+				vec3 color = texture(tex0, vTexCoord).rgb;
+				color = applyHueRotation(color, hueDegrees);
+				float luma = dot(color, vec3(0.299, 0.587, 0.114));
+				color = mix(vec3(luma), color, saturation);
+				color = ((color - 0.5) * contrast) + 0.5;
+				color += vec3(brightness - 1.0);
+				color = clamp(color, 0.0, 1.0);
+				color = pow(color, vec3(1.0 / max(gammaValue, 0.001)));
+				outputColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+			}
+		)";
+	} else {
+		vertexSource = R"(
+			#version 120
+			varying vec2 vTexCoord;
+			void main() {
+				vTexCoord = gl_MultiTexCoord0.xy;
+				gl_Position = ftransform();
+			}
+		)";
+
+		fragmentSource = R"(
+			#version 120
+			uniform sampler2D tex0;
+			uniform float brightness;
+			uniform float contrast;
+			uniform float saturation;
+			uniform float gammaValue;
+			uniform float hueDegrees;
+			varying vec2 vTexCoord;
+
+			vec3 applyHueRotation(vec3 color, float hueDegreesValue) {
+				float angle = radians(hueDegreesValue);
+				float cosA = cos(angle);
+				float sinA = sin(angle);
+
+				mat3 rgbToYiq = mat3(
+					0.299, 0.587, 0.114,
+					0.596, -0.274, -0.322,
+					0.211, -0.523, 0.312
+				);
+				mat3 yiqToRgb = mat3(
+					1.0, 0.956, 0.621,
+					1.0, -0.272, -0.647,
+					1.0, -1.106, 1.703
+				);
+
+				vec3 yiq = rgbToYiq * color;
+				vec2 iq = mat2(cosA, -sinA, sinA, cosA) * yiq.yz;
+				return yiqToRgb * vec3(yiq.x, iq.x, iq.y);
+			}
+
+			void main() {
+				vec3 color = texture2D(tex0, vTexCoord).rgb;
+				color = applyHueRotation(color, hueDegrees);
+				float luma = dot(color, vec3(0.299, 0.587, 0.114));
+				color = mix(vec3(luma), color, saturation);
+				color = ((color - 0.5) * contrast) + 0.5;
+				color += vec3(brightness - 1.0);
+				color = clamp(color, 0.0, 1.0);
+				color = pow(color, vec3(1.0 / max(gammaValue, 0.001)));
+				gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+			}
+		)";
+	}
+
+	videoAdjustShaderReady =
+		videoAdjustShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexSource) &&
+		videoAdjustShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentSource);
+	if (videoAdjustShaderReady && ofIsGLProgrammableRenderer()) {
+		videoAdjustShader.bindDefaults();
+	}
+	if (videoAdjustShaderReady) {
+		videoAdjustShaderReady = videoAdjustShader.linkProgram();
+	}
+}
+
 void ofApp::setupAnaglyphShader() {
 	std::string vertexSource;
 	std::string fragmentSource;
@@ -323,26 +478,46 @@ void ofApp::setupAnaglyphShader() {
 	}
 }
 
-void ofApp::updateAnaglyphPreview() {
-	if (!anaglyphShaderReady || !videoPreviewFbo.isAllocated() || videoPreviewWidth <= 1.0f || videoPreviewHeight <= 1.0f) {
+void ofApp::updateVideoAdjustPreview(const ofTexture & sourceTexture, float sourceWidth, float sourceHeight) {
+	if (!videoAdjustShaderReady || !sourceTexture.isAllocated() || sourceWidth <= 1.0f || sourceHeight <= 1.0f) {
+		return;
+	}
+
+	ensureFboSize(videoAdjustPreviewFbo, sourceWidth, sourceHeight);
+	videoAdjustPreviewFbo.begin();
+	ofClear(0, 0, 0, 0);
+	videoAdjustShader.begin();
+	videoAdjustShader.setUniformTexture("tex0", sourceTexture, 0);
+	videoAdjustShader.setUniform1f("brightness", player.getVideoBrightness());
+	videoAdjustShader.setUniform1f("contrast", player.getVideoContrast());
+	videoAdjustShader.setUniform1f("saturation", player.getVideoSaturation());
+	videoAdjustShader.setUniform1f("gammaValue", player.getVideoGamma());
+	videoAdjustShader.setUniform1f("hueDegrees", player.getVideoHue());
+	sourceTexture.draw(0.0f, 0.0f, sourceWidth, sourceHeight);
+	videoAdjustShader.end();
+	videoAdjustPreviewFbo.end();
+}
+
+void ofApp::updateAnaglyphPreview(const ofTexture & sourceTexture, float sourceWidth, float sourceHeight) {
+	if (!anaglyphShaderReady || !sourceTexture.isAllocated() || sourceWidth <= 1.0f || sourceHeight <= 1.0f) {
 		return;
 	}
 
 	// Anaglyph combines the left and right halves of the SBS preview into a single output,
 	// so the preview width is halved while the original height stays untouched.
-	const float targetWidth = std::max(1.0f, videoPreviewWidth * 0.5f);
-	ensureFboSize(anaglyphPreviewFbo, targetWidth, videoPreviewHeight);
+	const float targetWidth = std::max(1.0f, sourceWidth * 0.5f);
+	ensureFboSize(anaglyphPreviewFbo, targetWidth, sourceHeight);
 	const auto [leftTint, rightTint] = getAnaglyphTints(remoteGui.getAnaglyphColorMode());
 
 	anaglyphPreviewFbo.begin();
 	ofClear(0, 0, 0, 0);
 	anaglyphShader.begin();
-	anaglyphShader.setUniformTexture("tex0", videoPreviewFbo.getTexture(), 0);
+	anaglyphShader.setUniformTexture("tex0", sourceTexture, 0);
 	anaglyphShader.setUniform3f("leftTint", leftTint.x, leftTint.y, leftTint.z);
 	anaglyphShader.setUniform3f("rightTint", rightTint.x, rightTint.y, rightTint.z);
 	anaglyphShader.setUniform1f("eyeSeparation", remoteGui.getAnaglyphEyeSeparation());
 	anaglyphShader.setUniform1f("swapEyes", remoteGui.isAnaglyphSwapEyesEnabled() ? 1.0f : 0.0f);
-	videoPreviewFbo.draw(0.0f, 0.0f, targetWidth, videoPreviewHeight);
+	sourceTexture.draw(0.0f, 0.0f, targetWidth, sourceHeight);
 	anaglyphShader.end();
 	anaglyphPreviewFbo.end();
 }
@@ -364,6 +539,7 @@ void ofApp::setup() {
 	soundStream.start();
 
 	remoteGui.setup();
+	setupVideoAdjustShader();
 	setupAnaglyphShader();
 	projectMSourceFbo.allocate(std::max(ofGetScreenWidth(), 1), std::max(ofGetScreenHeight(), 1), GL_RGBA);
 	clearAllocatedFbo(projectMSourceFbo);
@@ -477,13 +653,31 @@ void ofApp::update() {
 				videoPreviewHeight);
 		}
 	}
+	const bool useVideoAdjustPreview = shouldUseAdjustedVideoPreview(
+		videoPreviewHasContent,
+		videoPreviewShowsVideo,
+		player.isVideoAdjustmentsEnabled(),
+		videoAdjustShaderReady,
+		videoPreviewFbo);
+	if (useVideoAdjustPreview) {
+		updateVideoAdjustPreview(videoPreviewFbo.getTexture(), videoPreviewWidth, videoPreviewHeight);
+	}
+
+	const ofFbo & previewEffectsSourceFbo = useVideoAdjustPreview
+		? videoAdjustPreviewFbo
+		: videoPreviewFbo;
+	const ofTexture & previewEffectsSourceTexture = previewEffectsSourceFbo.getTexture();
+
 	// Only real video frames are pushed through the anaglyph pass.
 	// Cover art and empty placeholders stay on the normal preview path.
-	if (videoPreviewHasContent &&
-		videoPreviewShowsVideo &&
-		remoteGui.isAnaglyphEnabled() &&
-		player.getVideoStereoMode() == ofxVlc4Player::VideoStereoMode::SideBySide) {
-		updateAnaglyphPreview();
+	if (shouldUseAnaglyphPreview(
+			videoPreviewHasContent,
+			videoPreviewShowsVideo,
+			remoteGui.isAnaglyphEnabled(),
+			player.getVideoStereoMode(),
+			true,
+			previewEffectsSourceFbo)) {
+		updateAnaglyphPreview(previewEffectsSourceTexture, videoPreviewWidth, videoPreviewHeight);
 	}
 	if (projectMInitialized &&
 		renderProjectMPreview &&
@@ -511,18 +705,28 @@ void ofApp::draw() {
 	const bool showActiveVideoPreview = videoPreviewHasContent && (!player.isStopped() || player.isPlaybackRestartPending());
 	// Display switches to the derived anaglyph texture only when the preview currently
 	// represents SBS video. All other states keep the standard preview texture.
-	const bool useAnaglyphPreview =
-		showActiveVideoPreview &&
-		videoPreviewShowsVideo &&
-		remoteGui.isAnaglyphEnabled() &&
-		player.getVideoStereoMode() == ofxVlc4Player::VideoStereoMode::SideBySide &&
-		anaglyphShaderReady &&
-		anaglyphPreviewFbo.isAllocated();
-	const ofTexture & videoPreviewTexture = useAnaglyphPreview
-		? anaglyphPreviewFbo.getTexture()
-		: (showActiveVideoPreview && videoPreviewFbo.isAllocated()
-			? videoPreviewFbo.getTexture()
-			: emptyTexture);
+	const bool useAnaglyphPreview = shouldUseAnaglyphPreview(
+		showActiveVideoPreview,
+		videoPreviewShowsVideo,
+		remoteGui.isAnaglyphEnabled(),
+		player.getVideoStereoMode(),
+		anaglyphShaderReady,
+		anaglyphPreviewFbo);
+	const bool useAdjustedPreview = shouldUseAdjustedVideoPreview(
+		showActiveVideoPreview,
+		videoPreviewShowsVideo,
+		player.isVideoAdjustmentsEnabled(),
+		videoAdjustShaderReady,
+		videoAdjustPreviewFbo);
+	const ofTexture * videoPreviewTexturePtr = &emptyTexture;
+	if (useAnaglyphPreview) {
+		videoPreviewTexturePtr = &anaglyphPreviewFbo.getTexture();
+	} else if (useAdjustedPreview) {
+		videoPreviewTexturePtr = &videoAdjustPreviewFbo.getTexture();
+	} else if (showActiveVideoPreview && videoPreviewFbo.isAllocated()) {
+		videoPreviewTexturePtr = &videoPreviewFbo.getTexture();
+	}
+	const ofTexture & videoPreviewTexture = *videoPreviewTexturePtr;
 	const float displayPreviewWidth = showActiveVideoPreview
 		? (useAnaglyphPreview ? std::max(1.0f, videoPreviewWidth * 0.5f) : videoPreviewWidth)
 		: 0.0f;

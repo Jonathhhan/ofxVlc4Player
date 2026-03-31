@@ -54,7 +54,9 @@ void drawTexturePreview(
 	float displayHeight,
 	float maxWidth,
 	bool fillWindow,
-	bool flipVertical);
+	bool flipVertical,
+	float innerBorder = kPreviewInnerBorder,
+	ImU32 textureBackgroundColor = 0);
 
 float computePreviewWindowHeight(float sourceWidth, float sourceHeight, float windowWidth, float maxPreviewWidth);
 bool isValidPlaylistIndex(const std::vector<std::string> & playlist, int index);
@@ -281,7 +283,7 @@ bool applyHoveredWheelStep(int & value, int minValue, int maxValue) {
 		return false;
 	}
 
-	const int direction = (wheel > 0.0f) ? -1 : 1;
+	const int direction = (wheel > 0.0f) ? 1 : -1;
 	const int newValue = ofClamp(value + direction, minValue, maxValue);
 	if (newValue == value) {
 		return false;
@@ -303,7 +305,7 @@ bool applyHoveredWheelStep(float & value, float minValue, float maxValue, float 
 	}
 
 	const float effectiveStep = io.KeyCtrl ? 0.1f : step;
-	const float direction = (wheel > 0.0f) ? -1.0f : 1.0f;
+	const float direction = (wheel > 0.0f) ? 1.0f : -1.0f;
 	const float newValue = ofClamp(value + direction * effectiveStep, minValue, maxValue);
 	if (newValue == value) {
 		return false;
@@ -328,6 +330,9 @@ void drawPreviewWindow(
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
 	if (fullscreen) {
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, kUiEmptyDisplay);
 		ImGui::SetNextWindowPos(fullscreenPos, ImGuiCond_Always);
 		ImGui::SetNextWindowSize(fullscreenSize, ImGuiCond_Always);
 		flags |= ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
@@ -348,7 +353,9 @@ void drawPreviewWindow(
 		sourceHeight,
 		fullscreen ? fullscreenSize.x : kPreviewMaxWidth,
 		false,
-		flipVertical);
+		flipVertical,
+		fullscreen ? 0.0f : kPreviewInnerBorder,
+		ImGui::GetColorU32(fullscreen ? kUiEmptyDisplay : kUiBorder));
 	if (!fullscreen) {
 		const ImVec2 currentPos = ImGui::GetWindowPos();
 		lastWindowPos = glm::vec2(currentPos.x, currentPos.y);
@@ -357,6 +364,10 @@ void drawPreviewWindow(
 	ImGui::End();
 
 	ImGui::PopStyleVar();
+	if (fullscreen) {
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar(2);
+	}
 }
 
 void drawTexturePreview(
@@ -364,15 +375,20 @@ void drawTexturePreview(
 	float displayWidth,
 	float displayHeight,
 	float maxWidth,
-	bool fillWindow = false,
-	bool flipVertical = false) {
+	bool fillWindow,
+	bool flipVertical,
+	float innerBorder,
+	ImU32 textureBackgroundColor) {
 	const ImVec2 contentStart = ImGui::GetCursorPos();
 	const ImVec2 availableRegion = ImGui::GetContentRegionAvail();
 	const ImVec2 screenStart = ImGui::GetCursorScreenPos();
 	const ImVec2 insetRegion(
-		std::max(1.0f, availableRegion.x - kPreviewInnerBorder * 2.0f),
-		std::max(1.0f, availableRegion.y - kPreviewInnerBorder * 2.0f));
+		std::max(1.0f, availableRegion.x - innerBorder * 2.0f),
+		std::max(1.0f, availableRegion.y - innerBorder * 2.0f));
 	ImDrawList * drawList = ImGui::GetWindowDrawList();
+	if (textureBackgroundColor == 0) {
+		textureBackgroundColor = ImGui::GetColorU32(kUiBorder);
+	}
 
 	float drawWidth = 0.0f;
 	float drawHeight = 0.0f;
@@ -400,8 +416,8 @@ void drawTexturePreview(
 	}
 
 	const ImVec2 drawPos(
-		contentStart.x + kPreviewInnerBorder + std::max(0.0f, (insetRegion.x - drawWidth) * 0.5f),
-		contentStart.y + kPreviewInnerBorder + std::max(0.0f, (insetRegion.y - drawHeight) * 0.5f));
+		contentStart.x + innerBorder + std::max(0.0f, (insetRegion.x - drawWidth) * 0.5f),
+		contentStart.y + innerBorder + std::max(0.0f, (insetRegion.y - drawHeight) * 0.5f));
 	const ImVec2 drawScreenPos(
 		screenStart.x + (drawPos.x - contentStart.x),
 		screenStart.y + (drawPos.y - contentStart.y));
@@ -419,7 +435,7 @@ void drawTexturePreview(
 	drawList->AddRectFilled(
 		drawScreenPos,
 		ImVec2(drawScreenPos.x + drawWidth, drawScreenPos.y + drawHeight),
-		ImGui::GetColorU32(kUiBorder));
+		textureBackgroundColor);
 
 	ImGui::SetCursorPos(drawPos);
 
@@ -846,6 +862,7 @@ void ofVlcPlayer4Gui::drawPlaybackOptionsSection(
 	ImGui::Separator();
 
 	drawEqualizerSection(player);
+	drawVideoAdjustmentsSection(player);
 	drawVideo3DSection(player);
 
 	if (ImGui::CollapsingHeader("Playlist", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -908,6 +925,9 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 	if (!ImGui::CollapsingHeader("Equalizer")) {
 		return;
 	}
+
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, kLabelInnerSpacing);
+	ImGui::PushItemWidth(220.0f);
 
 	const int presetCount = player.getEqualizerPresetCount();
 	std::string presetPreview = "Custom";
@@ -1115,6 +1135,73 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 		ImGui::Text("%.1f dB", player.getEqualizerBandAmp(bandIndex));
 		ImGui::EndTooltip();
 	}
+
+	ImGui::PopItemWidth();
+	ImGui::PopStyleVar();
+}
+
+void ofVlcPlayer4Gui::drawVideoAdjustmentsSection(ofxVlc4Player & player) {
+	if (!ImGui::CollapsingHeader("Video Adjustments")) {
+		return;
+	}
+
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, kLabelInnerSpacing);
+	ImGui::PushItemWidth(220.0f);
+
+	const auto drawAdjustmentSlider = [&](const char * label,
+									  float & value,
+									  float minValue,
+									  float maxValue,
+									  const char * format,
+									  float wheelStep,
+									  const std::function<void(float)> & applyValue) {
+		if (ImGui::SliderFloat(label, &value, minValue, maxValue, format)) {
+			applyValue(value);
+		}
+		if (applyHoveredWheelStep(value, minValue, maxValue, wheelStep)) {
+			applyValue(value);
+		}
+	};
+
+	bool videoAdjustmentsEnabled = player.isVideoAdjustmentsEnabled();
+	if (ImGui::Checkbox("Enable", &videoAdjustmentsEnabled)) {
+		player.setVideoAdjustmentsEnabled(videoAdjustmentsEnabled);
+	}
+
+	float brightness = player.getVideoBrightness();
+	drawAdjustmentSlider("Brightness", brightness, 0.0f, 2.0f, "%.2f", 0.1f, [&](float value) {
+		player.setVideoBrightness(value);
+	});
+
+	float contrast = player.getVideoContrast();
+	drawAdjustmentSlider("Contrast", contrast, 0.0f, 2.0f, "%.2f", 0.1f, [&](float value) {
+		player.setVideoContrast(value);
+	});
+
+	float saturation = player.getVideoSaturation();
+	drawAdjustmentSlider("Saturation", saturation, 0.0f, 3.0f, "%.2f", 0.1f, [&](float value) {
+		player.setVideoSaturation(value);
+	});
+
+	float gamma = player.getVideoGamma();
+	drawAdjustmentSlider("Gamma", gamma, 0.5f, 2.5f, "%.2f", 0.1f, [&](float value) {
+		player.setVideoGamma(value);
+	});
+
+	float hue = player.getVideoHue();
+	if (hue > 180.0f) {
+		hue -= 360.0f;
+	}
+	drawAdjustmentSlider("Hue", hue, -180.0f, 180.0f, "%.0f deg", 5.0f, [&](float value) {
+		player.setVideoHue(value);
+	});
+
+	if (ImGui::Button("Reset", ImVec2(kActionButtonWidth, 0.0f))) {
+		player.resetVideoAdjustments();
+	}
+
+	ImGui::PopItemWidth();
+	ImGui::PopStyleVar();
 }
 
 void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
@@ -1141,9 +1228,11 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 		"Amber / Blue"
 	};
 
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, kLabelInnerSpacing);
+	ImGui::PushItemWidth(220.0f);
+
 	ImGui::TextDisabled("Projection");
 	int projectionIndex = static_cast<int>(player.getVideoProjectionMode()) + 1;
-	ImGui::PushItemWidth(220.0f);
 	if (ImGui::Combo("Projection", &projectionIndex, projectionModes, IM_ARRAYSIZE(projectionModes))) {
 		player.setVideoProjectionMode(static_cast<ofxVlc4Player::VideoProjectionMode>(projectionIndex - 1));
 	}
@@ -1158,7 +1247,6 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 	if (applyHoveredWheelStep(stereoIndex, 0, IM_ARRAYSIZE(stereoModes) - 1)) {
 		player.setVideoStereoMode(static_cast<ofxVlc4Player::VideoStereoMode>(stereoIndex));
 	}
-	ImGui::PopItemWidth();
 
 	ImGui::Separator();
 	ImGui::TextDisabled("View");
@@ -1197,14 +1285,12 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 	ImGui::Checkbox("Anaglyph", &anaglyphEnabled);
 	if (anaglyphEnabled) {
 		int colorModeIndex = static_cast<int>(anaglyphColorMode);
-		ImGui::PushItemWidth(220.0f);
 		if (ImGui::Combo("Colors", &colorModeIndex, anaglyphColorModes, IM_ARRAYSIZE(anaglyphColorModes))) {
 			anaglyphColorMode = static_cast<AnaglyphColorMode>(colorModeIndex);
 		}
 		if (applyHoveredWheelStep(colorModeIndex, 0, IM_ARRAYSIZE(anaglyphColorModes) - 1)) {
 			anaglyphColorMode = static_cast<AnaglyphColorMode>(colorModeIndex);
 		}
-		ImGui::PopItemWidth();
 		ImGui::Checkbox("Swap Eyes", &anaglyphSwapEyes);
 		if (ImGui::SliderFloat("Separation", &anaglyphEyeSeparation, -0.15f, 0.15f, "%.2f")) {
 			anaglyphEyeSeparation = ofClamp(anaglyphEyeSeparation, -0.15f, 0.15f);
@@ -1215,6 +1301,9 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 	if (ImGui::Button("Reset View", ImVec2(kActionButtonWidth, 0.0f))) {
 		player.resetVideoViewpoint();
 	}
+
+	ImGui::PopItemWidth();
+	ImGui::PopStyleVar();
 }
 
 void ofVlcPlayer4Gui::drawMediaInfoSection(const MediaDisplayState & mediaDisplayState) {
