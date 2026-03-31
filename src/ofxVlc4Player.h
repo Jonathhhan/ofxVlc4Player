@@ -67,6 +67,7 @@ private:
 
 	PlaybackMode playbackMode = PlaybackMode::Default;
 	bool shuffleEnabled = false;
+	bool forceAvformatDemuxEnabled = true;
 	bool audioCaptureEnabled = true;
 	bool equalizerEnabled = false;
 	float equalizerPreamp = 0.0f;
@@ -235,6 +236,9 @@ public:
 
 	void setShuffleEnabled(bool enabled);
 	bool isShuffleEnabled() const;
+	// Applies to media created after the call. Existing playback is left untouched.
+	void setForceAvformatDemuxEnabled(bool enabled);
+	bool isForceAvformatDemuxEnabled() const;
 	void setAudioCaptureEnabled(bool enabled);
 	bool isAudioCaptureEnabled() const;
 	bool isEqualizerEnabled() const;

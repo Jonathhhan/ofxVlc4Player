@@ -865,6 +865,10 @@ bool ofxVlc4Player::loadMediaAtIndex(int index) {
 		return false;
 	}
 
+	if (forceAvformatDemuxEnabled) {
+		libvlc_media_add_option(media, "demux=avformat");
+	}
+
 	mediaEventManager = libvlc_media_event_manager(media);
 	if (mediaEventManager) {
 		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
@@ -1687,6 +1691,20 @@ void ofxVlc4Player::setShuffleEnabled(bool enabled) {
 
 bool ofxVlc4Player::isShuffleEnabled() const {
 	return shuffleEnabled;
+}
+
+void ofxVlc4Player::setForceAvformatDemuxEnabled(bool enabled) {
+	if (forceAvformatDemuxEnabled == enabled) {
+		return;
+	}
+
+	forceAvformatDemuxEnabled = enabled;
+	setStatus(std::string("FFmpeg demux workaround ") + (enabled ? "enabled for future media loads." : "disabled for future media loads."));
+	logNotice(std::string("FFmpeg demux workaround ") + (enabled ? "enabled for future media loads." : "disabled for future media loads."));
+}
+
+bool ofxVlc4Player::isForceAvformatDemuxEnabled() const {
+	return forceAvformatDemuxEnabled;
 }
 
 void ofxVlc4Player::setAudioCaptureEnabled(bool enabled) {
