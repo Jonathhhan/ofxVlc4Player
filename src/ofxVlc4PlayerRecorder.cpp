@@ -378,6 +378,29 @@ void ofxVlc4PlayerRecorder::prepareAudioRecordingBuffer(int newSampleRate, int n
 	}
 
 	std::lock_guard<std::mutex> lock(audioRecordingMutex);
+	const size_t readableSamples = audioRingBuffer.getNumReadableSamples();
+	if (isRecording() && readableSamples > 0) {
+		audioTransferScratch.resize(readableSamples);
+		audioRingBuffer.read(audioTransferScratch.data(), readableSamples);
+		writeInterleaved(audioTransferScratch.data(), readableSamples);
+		if (!isRecording()) {
+			audioRecordingActive.store(false);
+			audioTransferScratch.clear();
+			audioRingBuffer.reset();
+			return;
+		}
+	}
+
+	if (sampleRate > 0 && channelCount > 0 &&
+		(newSampleRate != sampleRate || newChannelCount != channelCount)) {
+		lastError = "Audio recording format changed during capture.";
+		audioRecordingActive.store(false);
+		finalize(false);
+		audioTransferScratch.clear();
+		audioRingBuffer.reset();
+		return;
+	}
+
 	audioRingBuffer.allocate(
 		static_cast<size_t>(newSampleRate) *
 		static_cast<size_t>(newChannelCount) *

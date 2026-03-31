@@ -7,11 +7,15 @@
 #include "vlc/vlc.h"
 
 #include <atomic>
+#include <chrono>
 #include <initializer_list>
 #include <cstdint>
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 class ofxVlc4Player {
@@ -23,6 +27,21 @@ public:
 		Loop
 	};
 
+	enum class VideoProjectionMode : int {
+		Auto = -1,
+		Rectangular = 0,
+		Equirectangular = 1,
+		CubemapStandard = 2
+	};
+
+	enum class VideoStereoMode {
+		Auto = 0,
+		Stereo,
+		LeftEye,
+		RightEye,
+		SideBySide
+	};
+
 private:
 	libvlc_instance_t * libvlc = nullptr;
 	libvlc_media_t * media = nullptr;
@@ -30,21 +49,34 @@ private:
 	libvlc_event_manager_t * mediaPlayerEventManager = nullptr;
 	libvlc_event_manager_t * mediaEventManager = nullptr;
 
-	std::shared_ptr<ofAppBaseWindow> vlcWindow;
+	std::shared_ptr<ofAppGLFWWindow> mainWindow;
+	std::shared_ptr<ofAppGLFWWindow> vlcWindow;
 
+	std::atomic<unsigned> renderWidth { 0 };
+	std::atomic<unsigned> renderHeight { 0 };
 	std::atomic<unsigned> videoWidth { 0 };
 	std::atomic<unsigned> videoHeight { 0 };
+	std::atomic<unsigned> pixelAspectNumerator { 1 };
+	std::atomic<unsigned> pixelAspectDenominator { 1 };
 	std::atomic<float> displayAspectRatio { 1.0f };
 	unsigned allocatedVideoWidth = 1;
 	unsigned allocatedVideoHeight = 1;
 	std::atomic<int> channels { 0 };
 	std::atomic<int> sampleRate { 0 };
-	std::atomic<int> ringBufferSize { 0 };
 	std::atomic<bool> isAudioReady { false };
 
 	PlaybackMode playbackMode = PlaybackMode::Default;
 	bool shuffleEnabled = false;
 	bool audioCaptureEnabled = true;
+	bool equalizerEnabled = false;
+	float equalizerPreamp = 0.0f;
+	int equalizerPresetIndex = -1;
+	VideoProjectionMode videoProjectionMode = VideoProjectionMode::Auto;
+	VideoStereoMode videoStereoMode = VideoStereoMode::Auto;
+	float videoViewYaw = 0.0f;
+	float videoViewPitch = 0.0f;
+	float videoViewRoll = 0.0f;
+	float videoViewFov = 80.0f;
 	std::string lastStatusMessage;
 	std::string lastErrorMessage;
 	std::atomic<bool> playbackWanted { false };
@@ -56,6 +88,7 @@ private:
 
 	mutable std::mutex videoMutex;
 	mutable std::mutex audioMutex;
+	mutable std::mutex metadataCacheMutex;
 	std::atomic<bool> shuttingDown { false };
 	std::atomic<int> pendingManualStopEvents { 0 };
 	std::atomic<bool> playNextRequested { false };
@@ -63,11 +96,13 @@ private:
 	std::atomic<bool> pendingActivateShouldPlay { false };
 	std::atomic<bool> pendingActivateReady { false };
 
-	std::atomic<unsigned> pendingVideoWidth { 0 };
-	std::atomic<unsigned> pendingVideoHeight { 0 };
+	std::atomic<unsigned> pendingRenderWidth { 0 };
+	std::atomic<unsigned> pendingRenderHeight { 0 };
 	std::atomic<bool> pendingResize { false };
 
 	std::vector<std::string> playlist;
+	mutable std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> metadataCache;
+	std::vector<float> equalizerBandAmps;
 	int currentIndex = -1;
 
 	// VLC Video callbacks
@@ -106,15 +141,35 @@ private:
 	bool loadMediaAtIndex(int index);
 	void activatePlaylistIndex(int index, bool shouldPlay);
 	void activatePlaylistIndexImmediate(int index, bool shouldPlay);
+	void addToPlaylistInternal(const std::string & path, bool preloadMetadata);
 	void clearCurrentMedia();
 	void handlePlaybackEnded();
+	void applyEqualizerSettings();
+	void applyVideoProjectionMode();
+	void applyVideoStereoMode();
+	void applyVideoViewpoint(bool absolute = true);
 	void refreshExposedTexture();
 	void refreshDisplayAspectRatio();
+	void refreshPixelAspectRatio();
+	void clearMetadataCache();
+	void cacheArtworkPathForCurrentMedia(const std::string & artworkPath);
+	void bindVlcRenderTarget();
+	void unbindVlcRenderTarget();
+	bool drawCurrentFrame(float x, float y, float width, float height);
+	std::vector<std::pair<std::string, std::string>> buildMetadataForMedia(libvlc_media_t * sourceMedia) const;
+	bool queryVideoTrackGeometry(unsigned & width, unsigned & height, unsigned & sarNum, unsigned & sarDen) const;
 	int getNextShuffleIndex() const;
 
 public:
 	ofxVlc4Player();
 	virtual ~ofxVlc4Player();
+
+	static void setLogLevel(ofLogLevel level);
+	static ofLogLevel getLogLevel();
+	static void logVerbose(const std::string & message);
+	static void logError(const std::string & message);
+	static void logWarning(const std::string & message);
+	static void logNotice(const std::string & message);
 
 	// init() owns the VLC instance/player lifetime for this wrapper and can safely be called again.
 	void update();
@@ -127,7 +182,6 @@ public:
 	void setVideoRecordingCodec(const std::string & codec);
 	const std::string & getVideoRecordingCodec() const { return recorder.getVideoCodec(); }
 
-	void updateVideoResources();
 	void draw(float x, float y, float w, float h);
 	void draw(float x, float y);
 	void updateRecorder();
@@ -152,8 +206,12 @@ public:
 	void movePlaylistItems(const std::vector<int> & fromIndices, int toIndex);
 
 	const std::vector<std::string> & getPlaylist() const { return playlist; }
+	std::string getPathAtIndex(int index) const;
+	std::string getFileNameAtIndex(int index) const;
+	std::vector<std::pair<std::string, std::string>> getMetadataAtIndex(int index) const;
 	std::string getCurrentPath() const;
 	std::string getCurrentFileName() const;
+	std::vector<std::pair<std::string, std::string>> getCurrentMetadata() const;
 	int getCurrentIndex() const { return currentIndex; }
 	bool isInitialized() const;
 	bool hasPlaylist() const;
@@ -172,14 +230,38 @@ public:
 	bool isShuffleEnabled() const;
 	void setAudioCaptureEnabled(bool enabled);
 	bool isAudioCaptureEnabled() const;
+	bool isEqualizerEnabled() const;
+	void setEqualizerEnabled(bool enabled);
+	float getEqualizerPreamp() const;
+	void setEqualizerPreamp(float preamp);
+	int getEqualizerBandCount() const;
+	float getEqualizerBandFrequency(int index) const;
+	float getEqualizerBandAmp(int index) const;
+	void setEqualizerBandAmp(int index, float amp);
+	int getEqualizerPresetCount() const;
+	std::string getEqualizerPresetName(int index) const;
+	int getEqualizerPresetIndex() const;
+	void applyEqualizerPreset(int index);
+	void resetEqualizer();
+	VideoProjectionMode getVideoProjectionMode() const;
+	void setVideoProjectionMode(VideoProjectionMode mode);
+	VideoStereoMode getVideoStereoMode() const;
+	void setVideoStereoMode(VideoStereoMode mode);
+	float getVideoYaw() const;
+	float getVideoPitch() const;
+	float getVideoRoll() const;
+	float getVideoFov() const;
+	void setVideoViewpoint(float yaw, float pitch, float roll, float fov, bool absolute = true);
+	void resetVideoViewpoint();
 
 	void setPosition(float pct);
 	float getHeight() const;
 	float getWidth() const;
 	bool isPlaying();
 	bool isStopped();
+	bool isPlaybackTransitioning() const;
+	bool isPlaybackRestartPending() const;
 	bool isSeekable();
-	bool videoReadyEvent();
 	float getPosition();
 	int getTime();
 	void setTime(int ms);
@@ -197,7 +279,5 @@ public:
 
 	ofxVlc4PlayerRingBuffer ringBuffer;
 	ofxVlc4PlayerRecorder recorder;
-
-	GLuint previousFramebuffer = 0;
 	bool vlcFboBound = false;
 };

@@ -3,10 +3,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstring>
+#include <filesystem>
+#include <functional>
+#include <iomanip>
+#include <sstream>
+
+#include "vlc/libvlc_picture.h"
 
 namespace {
 constexpr double kBufferedAudioSeconds = 0.75;
+constexpr const char * kLogChannel = "ofxVlc4Player";
+std::atomic<int> gLogLevel { static_cast<int>(OF_LOG_NOTICE) };
 
 std::string trimWhitespace(const std::string & value) {
 	const auto first = value.find_first_not_of(" \t\r\n");
@@ -22,12 +31,55 @@ bool isUri(const std::string & value) {
 	return ofStringTimesInString(value, "://") == 1;
 }
 
+std::string artworkFileExtension(libvlc_picture_type_t pictureType) {
+	switch (pictureType) {
+	case libvlc_picture_Png:
+		return ".png";
+	case libvlc_picture_Jpg:
+		return ".jpg";
+	case libvlc_picture_WebP:
+		return ".webp";
+	default:
+		return ".img";
+	}
+}
+
 bool isStoppedOrIdleState(libvlc_state_t state) {
 	return state == libvlc_Stopped || state == libvlc_NothingSpecial;
 }
 
 bool isTransientPlaybackState(libvlc_state_t state) {
 	return state == libvlc_Opening || state == libvlc_Buffering || state == libvlc_Stopping;
+}
+
+libvlc_video_projection_t toLibvlcProjectionMode(ofxVlc4Player::VideoProjectionMode mode) {
+	switch (mode) {
+	case ofxVlc4Player::VideoProjectionMode::Rectangular:
+		return libvlc_video_projection_rectangular;
+	case ofxVlc4Player::VideoProjectionMode::Equirectangular:
+		return libvlc_video_projection_equirectangular;
+	case ofxVlc4Player::VideoProjectionMode::CubemapStandard:
+		return libvlc_video_projection_cubemap_layout_standard;
+	case ofxVlc4Player::VideoProjectionMode::Auto:
+	default:
+		return libvlc_video_projection_rectangular;
+	}
+}
+
+libvlc_video_stereo_mode_t toLibvlcStereoMode(ofxVlc4Player::VideoStereoMode mode) {
+	switch (mode) {
+	case ofxVlc4Player::VideoStereoMode::Stereo:
+		return libvlc_VideoStereoStereo;
+	case ofxVlc4Player::VideoStereoMode::LeftEye:
+		return libvlc_VideoStereoLeftEye;
+	case ofxVlc4Player::VideoStereoMode::RightEye:
+		return libvlc_VideoStereoRightEye;
+	case ofxVlc4Player::VideoStereoMode::SideBySide:
+		return libvlc_VideoStereoSideBySide;
+	case ofxVlc4Player::VideoStereoMode::Auto:
+	default:
+		return libvlc_VideoStereoAuto;
+	}
 }
 
 std::string fileNameFromUri(const std::string & uri) {
@@ -38,6 +90,34 @@ std::string fileNameFromUri(const std::string & uri) {
 		return withoutQuery;
 	}
 	return withoutQuery.substr(slashPos + 1);
+}
+
+std::string mediaLabelForPath(const std::string & path) {
+	if (path.empty()) {
+		return "";
+	}
+
+	if (isUri(path)) {
+		const std::string label = fileNameFromUri(path);
+		return label.empty() ? path : label;
+	}
+
+	return ofFilePath::getFileName(path);
+}
+
+std::string readMediaMeta(libvlc_media_t * media, libvlc_meta_t metaType) {
+	if (!media) {
+		return "";
+	}
+
+	char * rawValue = libvlc_media_get_meta(media, metaType);
+	if (!rawValue) {
+		return "";
+	}
+
+	std::string value = trimWhitespace(rawValue);
+	libvlc_free(rawValue);
+	return value;
 }
 
 const std::set<std::string> & defaultMediaExtensions() {
@@ -75,11 +155,207 @@ void clearAllocatedFbo(ofFbo & fbo) {
 	ofClear(0, 0, 0, 0);
 	fbo.end();
 }
+
+bool shouldLog(ofLogLevel level) {
+	const ofLogLevel configuredLevel = static_cast<ofLogLevel>(gLogLevel.load());
+	return configuredLevel != OF_LOG_SILENT && level >= configuredLevel;
+}
+
+void appendMetadataValue(
+	std::vector<std::pair<std::string, std::string>> & metadata,
+	const std::string & label,
+	const std::string & value) {
+	const std::string trimmedValue = trimWhitespace(value);
+	if (!trimmedValue.empty()) {
+		metadata.emplace_back(label, trimmedValue);
+	}
+}
+
+std::string codecFourccToString(uint32_t codec) {
+	std::string out(4, ' ');
+	out[0] = static_cast<char>(codec & 0xFF);
+	out[1] = static_cast<char>((codec >> 8) & 0xFF);
+	out[2] = static_cast<char>((codec >> 16) & 0xFF);
+	out[3] = static_cast<char>((codec >> 24) & 0xFF);
+
+	for (char & ch : out) {
+		const unsigned char uchar = static_cast<unsigned char>(ch);
+		if (!std::isprint(uchar) || std::isspace(uchar)) {
+			ch = '.';
+		}
+	}
+
+	return out;
+}
+
+std::string describeCodec(libvlc_track_type_t trackType, uint32_t codec) {
+	if (codec == 0) {
+		return "";
+	}
+
+	const char * description = libvlc_media_get_codec_description(trackType, codec);
+	const std::string fourcc = codecFourccToString(codec);
+	if (description && *description) {
+		return std::string(description) + " (" + fourcc + ")";
+	}
+
+	return fourcc;
+}
+
+std::string formatBitrate(unsigned int bitsPerSecond) {
+	if (bitsPerSecond == 0) {
+		return "";
+	}
+
+	std::ostringstream stream;
+	if (bitsPerSecond >= 1000000) {
+		stream << std::fixed << std::setprecision(1)
+			   << (static_cast<double>(bitsPerSecond) / 1000000.0) << " Mbps";
+	} else {
+		stream << std::fixed << std::setprecision(0)
+			   << (static_cast<double>(bitsPerSecond) / 1000.0) << " kbps";
+	}
+	return stream.str();
+}
+
+std::string formatFrameRate(unsigned numerator, unsigned denominator) {
+	if (numerator == 0 || denominator == 0) {
+		return "";
+	}
+
+	std::ostringstream stream;
+	stream << std::fixed << std::setprecision(2)
+		   << (static_cast<double>(numerator) / static_cast<double>(denominator)) << " fps";
+	return stream.str();
+}
+
+void appendTrackMetadata(
+	std::vector<std::pair<std::string, std::string>> & metadata,
+	const std::string & prefix,
+	libvlc_track_type_t trackType,
+	const libvlc_media_track_t * track) {
+	if (!track || track->i_type != trackType) {
+		return;
+	}
+
+	appendMetadataValue(metadata, prefix + " Codec", describeCodec(trackType, track->i_codec));
+	appendMetadataValue(metadata, prefix + " Bitrate", formatBitrate(track->i_bitrate));
+	appendMetadataValue(
+		metadata,
+		prefix + " Language",
+		track->psz_language ? track->psz_language : "");
+	appendMetadataValue(
+		metadata,
+		prefix + " Track",
+		track->psz_name ? track->psz_name : "");
+
+	if (trackType == libvlc_track_video && track->video) {
+		const auto * video = track->video;
+		if (video->i_width > 0 && video->i_height > 0) {
+			appendMetadataValue(
+				metadata,
+				"Video Resolution",
+				ofToString(video->i_width) + " x " + ofToString(video->i_height));
+		}
+		appendMetadataValue(metadata, "Frame Rate", formatFrameRate(video->i_frame_rate_num, video->i_frame_rate_den));
+		if (video->i_sar_num > 0 && video->i_sar_den > 0 &&
+			(video->i_sar_num != 1 || video->i_sar_den != 1)) {
+			appendMetadataValue(
+				metadata,
+				"Pixel Aspect",
+				ofToString(video->i_sar_num) + ":" + ofToString(video->i_sar_den));
+		}
+	} else if (trackType == libvlc_track_audio && track->audio) {
+		const auto * audio = track->audio;
+		if (audio->i_channels > 0) {
+			appendMetadataValue(metadata, "Audio Channels", ofToString(audio->i_channels));
+		}
+		if (audio->i_rate > 0) {
+			appendMetadataValue(metadata, "Audio Rate", ofToString(audio->i_rate) + " Hz");
+		}
+	} else if (trackType == libvlc_track_text && track->subtitle) {
+		appendMetadataValue(
+			metadata,
+			"Subtitle Encoding",
+			track->subtitle->psz_encoding ? track->subtitle->psz_encoding : "");
+	}
+}
+
+void appendTrackMetadataFromMediaTracklist(
+	std::vector<std::pair<std::string, std::string>> & metadata,
+	libvlc_media_t * media,
+	libvlc_track_type_t trackType,
+	const std::string & prefix) {
+	if (!media) {
+		return;
+	}
+
+	libvlc_media_tracklist_t * tracklist = libvlc_media_get_tracklist(media, trackType);
+	if (!tracklist) {
+		return;
+	}
+
+	const size_t trackCount = libvlc_media_tracklist_count(tracklist);
+	if (trackCount > 0) {
+		appendTrackMetadata(metadata, prefix, trackType, libvlc_media_tracklist_at(tracklist, 0));
+	}
+
+	libvlc_media_tracklist_delete(tracklist);
+}
+
+void waitForMediaParse(libvlc_media_t * media, int timeoutMs) {
+	if (!media || timeoutMs <= 0) {
+		return;
+	}
+
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+	while (std::chrono::steady_clock::now() < deadline) {
+		const libvlc_media_parsed_status_t status = libvlc_media_get_parsed_status(media);
+		if (status == libvlc_media_parsed_status_done ||
+			status == libvlc_media_parsed_status_failed ||
+			status == libvlc_media_parsed_status_timeout ||
+			status == libvlc_media_parsed_status_skipped ||
+			status == libvlc_media_parsed_status_cancelled) {
+			return;
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(25));
+	}
+}
+
+bool hasDetailedTrackMetadata(const std::vector<std::pair<std::string, std::string>> & metadata) {
+	for (const auto & [label, value] : metadata) {
+		if (value.empty()) {
+			continue;
+		}
+
+		if (label == "Video Codec" ||
+			label == "Audio Codec" ||
+			label == "Subtitle Codec" ||
+			label == "Video Resolution" ||
+			label == "Frame Rate" ||
+			label == "Audio Channels" ||
+			label == "Audio Rate") {
+			return true;
+		}
+	}
+
+	return false;
+}
 }
 
 ofxVlc4Player::ofxVlc4Player() {
 	ofGLFWWindowSettings settings;
-	settings.shareContextWith = ofGetCurrentWindow();
+	mainWindow = std::dynamic_pointer_cast<ofAppGLFWWindow>(ofGetCurrentWindow());
+	if (mainWindow) {
+		settings = mainWindow->getSettings();
+	}
+	settings.setSize(1, 1);
+	settings.setPosition(glm::vec2(-32000, -32000));
+	settings.visible = false;
+	settings.decorated = false;
+	settings.resizable = false;
+	settings.shareContextWith = mainWindow;
 	vlcWindow = std::make_shared<ofAppGLFWWindow>();
 	vlcWindow->setup(settings);
 	vlcWindow->setVerticalSync(true);
@@ -90,14 +366,46 @@ ofxVlc4Player::ofxVlc4Player() {
 	clearAllocatedFbo(exposedTextureFbo);
 	allocatedVideoWidth = 1;
 	allocatedVideoHeight = 1;
+	equalizerBandAmps.assign(libvlc_audio_equalizer_get_band_count(), 0.0f);
 }
 
 ofxVlc4Player::~ofxVlc4Player() {
 	close();
 }
 
+void ofxVlc4Player::setLogLevel(ofLogLevel level) {
+	gLogLevel.store(static_cast<int>(level));
+}
+
+ofLogLevel ofxVlc4Player::getLogLevel() {
+	return static_cast<ofLogLevel>(gLogLevel.load());
+}
+
+void ofxVlc4Player::logVerbose(const std::string & message) {
+	if (!message.empty() && shouldLog(OF_LOG_VERBOSE)) {
+		ofLogVerbose(kLogChannel) << message;
+	}
+}
+
+void ofxVlc4Player::logError(const std::string & message) {
+	if (!message.empty() && shouldLog(OF_LOG_ERROR)) {
+		ofLogError(kLogChannel) << message;
+	}
+}
+
+void ofxVlc4Player::logWarning(const std::string & message) {
+	if (!message.empty() && shouldLog(OF_LOG_WARNING)) {
+		ofLogWarning(kLogChannel) << message;
+	}
+}
+
+void ofxVlc4Player::logNotice(const std::string & message) {
+	if (!message.empty() && shouldLog(OF_LOG_NOTICE)) {
+		ofLogNotice(kLogChannel) << message;
+	}
+}
+
 void ofxVlc4Player::update() {
-	updateVideoResources();
 	refreshDisplayAspectRatio();
 	refreshExposedTexture();
 	updateRecorder();
@@ -118,6 +426,7 @@ void ofxVlc4Player::update() {
 void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 	// Re-init starts from a clean VLC state so partial previous setup cannot leak across sessions.
 	releaseVlcResources();
+	mainWindow = std::dynamic_pointer_cast<ofAppGLFWWindow>(ofGetCurrentWindow());
 	shuttingDown.store(false);
 	pendingManualStopEvents.store(0);
 	playNextRequested.store(false);
@@ -169,14 +478,18 @@ void ofxVlc4Player::init(int vlc_argc, char const * vlc_argv[]) {
 		libvlc_event_attach(mediaPlayerEventManager, libvlc_MediaPlayerStopped, vlcMediaPlayerEventStatic, this);
 		libvlc_event_attach(mediaPlayerEventManager, libvlc_MediaPlayerPlaying, vlcMediaPlayerEventStatic, this);
 	}
+
+	applyEqualizerSettings();
+	applyVideoProjectionMode();
+	applyVideoStereoMode();
+	applyVideoViewpoint();
+	logNotice("Player initialized.");
 }
 
 void ofxVlc4Player::setError(const std::string & message) {
 	lastErrorMessage = message;
 	lastStatusMessage.clear();
-	if (!message.empty()) {
-		ofLogWarning("ofxVlc4Player") << message;
-	}
+	logError(message);
 }
 
 void ofxVlc4Player::setStatus(const std::string & message) {
@@ -188,6 +501,34 @@ void ofxVlc4Player::clearPendingActivationRequest() {
 	pendingActivateIndex.store(-1);
 	pendingActivateShouldPlay.store(false);
 	pendingActivateReady.store(false);
+}
+
+void ofxVlc4Player::clearMetadataCache() {
+	std::lock_guard<std::mutex> lock(metadataCacheMutex);
+	metadataCache.clear();
+}
+
+void ofxVlc4Player::cacheArtworkPathForCurrentMedia(const std::string & artworkPath) {
+	if (artworkPath.empty() || currentIndex < 0 || currentIndex >= static_cast<int>(playlist.size())) {
+		return;
+	}
+
+	const std::string & currentPath = playlist[currentIndex];
+	if (currentPath.empty()) {
+		return;
+	}
+
+	std::lock_guard<std::mutex> lock(metadataCacheMutex);
+	auto & metadata = metadataCache[currentPath];
+	auto existing = std::find_if(
+		metadata.begin(),
+		metadata.end(),
+		[](const auto & entry) { return entry.first == "Artwork URL"; });
+	if (existing != metadata.end()) {
+		existing->second = artworkPath;
+	} else {
+		metadata.emplace_back("Artwork URL", artworkPath);
+	}
 }
 
 ofxVlc4Player::PlaybackMode ofxVlc4Player::playbackModeFromString(const std::string & mode) {
@@ -239,6 +580,7 @@ void ofxVlc4Player::detachEvents() {
 
 	if (mediaEventManager) {
 		libvlc_event_detach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
+		libvlc_event_detach(mediaEventManager, libvlc_MediaAttachedThumbnailsFound, vlcMediaEventStatic, this);
 		mediaEventManager = nullptr;
 	}
 }
@@ -284,7 +626,6 @@ void ofxVlc4Player::prepareAudioRingBuffer() {
 
 	std::lock_guard<std::mutex> lock(audioMutex);
 	ringBuffer.allocate(requestedSamples);
-	ringBufferSize.store(static_cast<int>(ringBuffer.size()));
 }
 
 void ofxVlc4Player::resetAudioBuffer() {
@@ -311,10 +652,17 @@ void ofxVlc4Player::ensureExposedTextureFboCapacity(unsigned requiredWidth, unsi
 		return;
 	}
 
+	const unsigned currentWidth =
+		exposedTextureFbo.isAllocated() ? static_cast<unsigned>(exposedTextureFbo.getWidth()) : 0u;
+	const unsigned currentHeight =
+		exposedTextureFbo.isAllocated() ? static_cast<unsigned>(exposedTextureFbo.getHeight()) : 0u;
+	const unsigned targetWidth = std::max(currentWidth, requiredWidth);
+	const unsigned targetHeight = std::max(currentHeight, requiredHeight);
+
 	if (!exposedTextureFbo.isAllocated() ||
-		requiredWidth > static_cast<unsigned>(exposedTextureFbo.getWidth()) ||
-		requiredHeight > static_cast<unsigned>(exposedTextureFbo.getHeight())) {
-		exposedTextureFbo.allocate(requiredWidth, requiredHeight, GL_RGBA);
+		targetWidth != currentWidth ||
+		targetHeight != currentHeight) {
+		exposedTextureFbo.allocate(targetWidth, targetHeight, GL_RGBA);
 		exposedTextureFbo.getTexture().getTextureData().bFlipTexture = true;
 		clearAllocatedFbo(exposedTextureFbo);
 	}
@@ -325,15 +673,31 @@ bool ofxVlc4Player::applyPendingVideoResize() {
 		return false;
 	}
 
-	const unsigned newW = pendingVideoWidth.load();
-	const unsigned newH = pendingVideoHeight.load();
-	if (newW == 0 || newH == 0) {
+	const unsigned newRenderWidth = pendingRenderWidth.load();
+	const unsigned newRenderHeight = pendingRenderHeight.load();
+	if (newRenderWidth == 0 || newRenderHeight == 0) {
 		return false;
 	}
 
-	videoWidth.store(newW);
-	videoHeight.store(newH);
-	ensureVideoFboCapacity(newW, newH);
+	unsigned visibleWidth = newRenderWidth;
+	unsigned visibleHeight = newRenderHeight;
+	if (mediaPlayer) {
+		unsigned queriedWidth = 0;
+		unsigned queriedHeight = 0;
+		if (libvlc_video_get_size(mediaPlayer, 0, &queriedWidth, &queriedHeight) == 0 &&
+			queriedWidth > 0 &&
+			queriedHeight > 0) {
+			visibleWidth = queriedWidth;
+			visibleHeight = queriedHeight;
+		}
+	}
+
+	refreshPixelAspectRatio();
+	renderWidth.store(newRenderWidth);
+	renderHeight.store(newRenderHeight);
+	videoWidth.store(visibleWidth);
+	videoHeight.store(visibleHeight);
+	ensureVideoFboCapacity(newRenderWidth, newRenderHeight);
 	isVideoLoaded.store(true);
 	return true;
 }
@@ -351,6 +715,12 @@ void ofxVlc4Player::recordVideo(std::string name, const ofTexture & texture) {
 		setError("Initialize the media player first.");
 		return;
 	}
+	if (texture.isAllocated() &&
+		exposedTextureFbo.isAllocated() &&
+		texture.getTextureData().textureID == exposedTextureFbo.getTexture().getTextureData().textureID) {
+		setError("Recording from the player's own output texture is not supported.");
+		return;
+	}
 
 	libvlc_media_t * loadedMedia = libvlc_media_player_get_media(mediaPlayer);
 	const bool hasLoadedMedia = (loadedMedia != nullptr);
@@ -363,14 +733,14 @@ void ofxVlc4Player::recordVideo(std::string name, const ofTexture & texture) {
 		return;
 	}
 
-	clearCurrentMedia();
-
 	const std::string outputPath = ofxVlc4PlayerRecorder::buildTimestampedOutputPath(name, ".mp4");
 	libvlc_media_t * recordingMedia = nullptr;
 	if (!recorder.startVideoRecordingToPath(recordingMedia, outputPath, texture)) {
 		setError(recorder.getLastError());
 		return;
 	}
+
+	clearCurrentMedia();
 
 	media = recordingMedia;
 	libvlc_media_player_set_media(mediaPlayer, media);
@@ -419,6 +789,12 @@ void ofxVlc4Player::recordAudioVideo(std::string name, const ofTexture & texture
 		setError("Initialize the media player first.");
 		return;
 	}
+	if (texture.isAllocated() &&
+		exposedTextureFbo.isAllocated() &&
+		texture.getTextureData().textureID == exposedTextureFbo.getTexture().getTextureData().textureID) {
+		setError("Recording from the player's own output texture is not supported.");
+		return;
+	}
 
 	libvlc_media_t * loadedMedia = libvlc_media_player_get_media(mediaPlayer);
 	const bool hasLoadedMedia = (loadedMedia != nullptr);
@@ -441,14 +817,14 @@ void ofxVlc4Player::recordAudioVideo(std::string name, const ofTexture & texture
 		return;
 	}
 
-	clearCurrentMedia();
-
 	libvlc_media_t * recordingMedia = nullptr;
 	if (!recorder.startVideoRecordingToPath(recordingMedia, videoPath, texture)) {
 		recorder.clearAudioRecording();
 		setError(recorder.getLastError());
 		return;
 	}
+
+	clearCurrentMedia();
 
 	media = recordingMedia;
 	libvlc_media_player_set_media(mediaPlayer, media);
@@ -478,9 +854,25 @@ bool ofxVlc4Player::loadMediaAtIndex(int index) {
 	mediaEventManager = libvlc_media_event_manager(media);
 	if (mediaEventManager) {
 		libvlc_event_attach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
+		libvlc_event_attach(mediaEventManager, libvlc_MediaAttachedThumbnailsFound, vlcMediaEventStatic, this);
+	}
+
+	if (libvlc) {
+		libvlc_media_parse_flag_t parseFlags = libvlc_media_parse_forced;
+		if (isUri(path)) {
+			parseFlags = static_cast<libvlc_media_parse_flag_t>(parseFlags | libvlc_media_parse_network);
+		} else {
+			parseFlags = static_cast<libvlc_media_parse_flag_t>(parseFlags | libvlc_media_parse_local);
+		}
+		if (libvlc_media_parse_request(libvlc, media, parseFlags, 1000) != 0) {
+			logNotice("Media parse request failed: " + path);
+		}
 	}
 
 	libvlc_media_player_set_media(mediaPlayer, media);
+	applyVideoProjectionMode();
+	applyVideoStereoMode();
+	applyVideoViewpoint();
 	return true;
 }
 
@@ -491,6 +883,7 @@ void ofxVlc4Player::clearCurrentMedia() {
 
 	if (mediaEventManager) {
 		libvlc_event_detach(mediaEventManager, libvlc_MediaParsedChanged, vlcMediaEventStatic, this);
+		libvlc_event_detach(mediaEventManager, libvlc_MediaAttachedThumbnailsFound, vlcMediaEventStatic, this);
 		mediaEventManager = nullptr;
 	}
 
@@ -501,10 +894,14 @@ void ofxVlc4Player::clearCurrentMedia() {
 
 	{
 		std::lock_guard<std::mutex> lock(videoMutex);
+		renderWidth.store(0);
+		renderHeight.store(0);
 		videoWidth.store(0);
 		videoHeight.store(0);
-		pendingVideoWidth.store(0);
-		pendingVideoHeight.store(0);
+		pixelAspectNumerator.store(1);
+		pixelAspectDenominator.store(1);
+		pendingRenderWidth.store(0);
+		pendingRenderHeight.store(0);
 		pendingResize.store(false);
 		displayAspectRatio.store(1.0f);
 		isVideoLoaded.store(false);
@@ -515,18 +912,34 @@ void ofxVlc4Player::clearCurrentMedia() {
 	audioPausedSignal.store(false);
 }
 
-void ofxVlc4Player::addToPlaylist(const std::string & path) {
+void ofxVlc4Player::addToPlaylistInternal(const std::string & path, bool preloadMetadata) {
 	if (!libvlc) {
 		setError("Initialize libvlc first.");
 		return;
 	}
 
+	{
+		std::lock_guard<std::mutex> lock(metadataCacheMutex);
+		metadataCache.erase(path);
+	}
+
 	playlist.push_back(path);
 	setStatus("Added media to playlist.");
+	logNotice("Playlist item added: " + mediaLabelForPath(path) + ".");
 
 	if (currentIndex < 0 && !playlist.empty()) {
 		currentIndex = 0;
 	}
+
+	if (preloadMetadata) {
+		// Warm the metadata cache as soon as a manually added item enters the playlist so
+		// the UI does not have to trigger the first parse during initial display.
+		getMetadataAtIndex(static_cast<int>(playlist.size()) - 1);
+	}
+}
+
+void ofxVlc4Player::addToPlaylist(const std::string & path) {
+	addToPlaylistInternal(path, true);
 }
 
 int ofxVlc4Player::addPathToPlaylist(const std::string & path) {
@@ -567,7 +980,7 @@ int ofxVlc4Player::addPathToPlaylist(const std::string & path, std::initializer_
 		int added = 0;
 		for (int i = 0; i < dir.size(); ++i) {
 			if (isSupportedMediaFile(dir.getFile(i), requestedExtensions.empty() ? nullptr : &requestedExtensions)) {
-				addToPlaylist(dir.getPath(i));
+				addToPlaylistInternal(dir.getPath(i), false);
 				++added;
 			}
 		}
@@ -575,6 +988,9 @@ int ofxVlc4Player::addPathToPlaylist(const std::string & path, std::initializer_
 			setError("No supported media files found in folder.");
 		} else {
 			setStatus("Added " + ofToString(added) + " media item(s) from folder.");
+			if (currentIndex >= 0 && currentIndex < static_cast<int>(playlist.size())) {
+				getMetadataAtIndex(currentIndex);
+			}
 		}
 		return added;
 	}
@@ -584,7 +1000,7 @@ int ofxVlc4Player::addPathToPlaylist(const std::string & path, std::initializer_
 		return 0;
 	}
 
-	addToPlaylist(resolvedPath);
+	addToPlaylistInternal(resolvedPath, true);
 	setStatus("Added media file to playlist.");
 	return 1;
 }
@@ -592,9 +1008,11 @@ int ofxVlc4Player::addPathToPlaylist(const std::string & path, std::initializer_
 void ofxVlc4Player::clearPlaylist() {
 	stop();
 	playlist.clear();
+	clearMetadataCache();
 	currentIndex = -1;
 	clearCurrentMedia();
 	setStatus("Playlist cleared.");
+	logNotice("Playlist cleared.");
 }
 
 void ofxVlc4Player::playIndex(int index) {
@@ -702,6 +1120,7 @@ void ofxVlc4Player::play() {
 	}
 
 	libvlc_media_player_play(mediaPlayer);
+	logNotice("Playback started.");
 }
 
 void ofxVlc4Player::pause() {
@@ -732,6 +1151,7 @@ void ofxVlc4Player::pause() {
 		}
 		if (state == libvlc_Playing) {
 			libvlc_media_player_pause(mediaPlayer);
+			logNotice("Playback paused.");
 		}
 	}
 }
@@ -751,6 +1171,7 @@ void ofxVlc4Player::stop() {
 		// The VLC 4 API exposes async stop for media players, so shutdown completion comes back via events.
 		libvlc_media_player_stop_async(mediaPlayer);
 	}
+	logNotice("Playback stopped.");
 }
 
 int ofxVlc4Player::getNextShuffleIndex() const {
@@ -781,6 +1202,7 @@ void ofxVlc4Player::nextMediaListItem() {
 	} else {
 		activatePlaylistIndex(0, shouldPlay);
 	}
+	logNotice("Next playlist item selected.");
 }
 
 void ofxVlc4Player::previousMediaListItem() {
@@ -800,6 +1222,7 @@ void ofxVlc4Player::previousMediaListItem() {
 	} else {
 		activatePlaylistIndex(static_cast<int>(playlist.size()) - 1, shouldPlay);
 	}
+	logNotice("Previous playlist item selected.");
 }
 
 void ofxVlc4Player::removeFromPlaylist(int index) {
@@ -816,6 +1239,7 @@ void ofxVlc4Player::removeFromPlaylist(int index) {
 	}
 
 	playlist.erase(playlist.begin() + index);
+	clearMetadataCache();
 
 	if (playlist.empty()) {
 		currentIndex = -1;
@@ -834,6 +1258,8 @@ void ofxVlc4Player::removeFromPlaylist(int index) {
 	if (wasCurrent && currentIndex >= 0) {
 		activatePlaylistIndex(currentIndex, shouldPlayReplacement);
 	}
+
+	logNotice("Playlist item removed.");
 }
 
 void ofxVlc4Player::movePlaylistItem(int fromIndex, int toIndex) {
@@ -862,6 +1288,8 @@ void ofxVlc4Player::movePlaylistItem(int fromIndex, int toIndex) {
 	} else {
 		currentIndex = originalCurrent;
 	}
+
+	logNotice("Playlist item moved.");
 }
 
 void ofxVlc4Player::movePlaylistItems(const std::vector<int> & fromIndices, int toIndex) {
@@ -930,6 +1358,9 @@ void ofxVlc4Player::movePlaylistItems(const std::vector<int> & fromIndices, int 
 		playlist.begin() + adjustedInsertIndex,
 		std::make_move_iterator(movedItems.begin()),
 		std::make_move_iterator(movedItems.end()));
+	clearMetadataCache();
+
+	logNotice("Playlist items moved.");
 }
 
 void ofxVlc4Player::handlePlaybackEnded() {
@@ -966,28 +1397,98 @@ void ofxVlc4Player::handlePlaybackEnded() {
 
 	if (playbackMode == PlaybackMode::Loop) {
 		playIndex(0);
+		return;
 	}
+
+	playNextRequested.store(false);
+	playbackWanted.store(false);
+	pauseRequested.store(false);
+	audioPausedSignal.store(false);
+	resetAudioBuffer();
+}
+
+void ofxVlc4Player::applyEqualizerSettings() {
+	if (!mediaPlayer) {
+		return;
+	}
+
+	if (!equalizerEnabled) {
+		libvlc_media_player_set_equalizer(mediaPlayer, nullptr);
+		return;
+	}
+
+	libvlc_equalizer_t * equalizer = libvlc_audio_equalizer_new();
+	if (!equalizer) {
+		logWarning("Equalizer could not be created.");
+		return;
+	}
+
+	libvlc_audio_equalizer_set_preamp(equalizer, equalizerPreamp);
+	for (unsigned i = 0; i < equalizerBandAmps.size(); ++i) {
+		libvlc_audio_equalizer_set_amp_at_index(equalizer, equalizerBandAmps[i], i);
+	}
+
+	if (libvlc_media_player_set_equalizer(mediaPlayer, equalizer) != 0) {
+		logWarning("Equalizer settings could not be applied.");
+	}
+
+	libvlc_audio_equalizer_release(equalizer);
+}
+
+void ofxVlc4Player::applyVideoProjectionMode() {
+	if (!mediaPlayer) {
+		return;
+	}
+
+	if (videoProjectionMode == VideoProjectionMode::Auto) {
+		libvlc_video_unset_projection_mode(mediaPlayer);
+		return;
+	}
+
+	libvlc_video_set_projection_mode(mediaPlayer, toLibvlcProjectionMode(videoProjectionMode));
+}
+
+void ofxVlc4Player::applyVideoStereoMode() {
+	if (!mediaPlayer) {
+		return;
+	}
+
+	libvlc_video_set_video_stereo_mode(mediaPlayer, toLibvlcStereoMode(videoStereoMode));
+}
+
+void ofxVlc4Player::applyVideoViewpoint(bool absolute) {
+	if (!mediaPlayer) {
+		return;
+	}
+
+	libvlc_video_viewpoint_t viewpoint {};
+	viewpoint.f_yaw = videoViewYaw;
+	viewpoint.f_pitch = videoViewPitch;
+	viewpoint.f_roll = videoViewRoll;
+	viewpoint.f_field_of_view = videoViewFov;
+	libvlc_video_update_viewpoint(mediaPlayer, &viewpoint, absolute);
 }
 
 void ofxVlc4Player::setPlaybackMode(PlaybackMode mode) {
 	playbackMode = mode;
 	setStatus("Playback mode set to " + playbackModeToString(mode) + ".");
+	logNotice("Playback mode: " + playbackModeToString(mode));
 }
 
 void ofxVlc4Player::setPlaybackMode(const std::string & mode) {
 	setPlaybackMode(playbackModeFromString(mode));
 }
 
-std::string ofxVlc4Player::getCurrentPath() const {
-	if (currentIndex < 0 || currentIndex >= static_cast<int>(playlist.size())) {
+std::string ofxVlc4Player::getPathAtIndex(int index) const {
+	if (index < 0 || index >= static_cast<int>(playlist.size())) {
 		return "";
 	}
 
-	return playlist[currentIndex];
+	return playlist[index];
 }
 
-std::string ofxVlc4Player::getCurrentFileName() const {
-	const std::string currentPath = getCurrentPath();
+std::string ofxVlc4Player::getFileNameAtIndex(int index) const {
+	const std::string currentPath = getPathAtIndex(index);
 	if (currentPath.empty()) {
 		return "";
 	}
@@ -998,6 +1499,147 @@ std::string ofxVlc4Player::getCurrentFileName() const {
 	}
 
 	return ofFilePath::getFileName(currentPath);
+}
+
+std::string ofxVlc4Player::getCurrentPath() const {
+	return getPathAtIndex(currentIndex);
+}
+
+std::string ofxVlc4Player::getCurrentFileName() const {
+	return getFileNameAtIndex(currentIndex);
+}
+
+std::vector<std::pair<std::string, std::string>> ofxVlc4Player::buildMetadataForMedia(libvlc_media_t * sourceMedia) const {
+	std::vector<std::pair<std::string, std::string>> metadata;
+	if (!sourceMedia) {
+		return metadata;
+	}
+
+	const std::pair<const char *, libvlc_meta_t> knownMetadata[] = {
+		{ "Title", libvlc_meta_Title },
+		{ "Artist", libvlc_meta_Artist },
+		{ "Album", libvlc_meta_Album },
+		{ "Artwork URL", libvlc_meta_ArtworkURL },
+		{ "Album Artist", libvlc_meta_AlbumArtist },
+		{ "Genre", libvlc_meta_Genre },
+		{ "Date", libvlc_meta_Date },
+		{ "Track", libvlc_meta_TrackNumber },
+		{ "Track Total", libvlc_meta_TrackTotal },
+		{ "Disc", libvlc_meta_DiscNumber },
+		{ "Disc Total", libvlc_meta_DiscTotal },
+		{ "Show", libvlc_meta_ShowName },
+		{ "Season", libvlc_meta_Season },
+		{ "Episode", libvlc_meta_Episode },
+		{ "Director", libvlc_meta_Director },
+		{ "Actors", libvlc_meta_Actors },
+		{ "Publisher", libvlc_meta_Publisher },
+		{ "Language", libvlc_meta_Language },
+		{ "Now Playing", libvlc_meta_NowPlaying },
+		{ "Description", libvlc_meta_Description },
+		{ "URL", libvlc_meta_URL }
+	};
+
+	for (const auto & [label, metaType] : knownMetadata) {
+		const std::string value = readMediaMeta(sourceMedia, metaType);
+		if (!value.empty()) {
+			metadata.emplace_back(label, value);
+		}
+	}
+
+	const libvlc_time_t duration = libvlc_media_get_duration(sourceMedia);
+	if (duration > 0) {
+		appendMetadataValue(metadata, "Duration", ofToString(static_cast<int64_t>(duration / 1000)));
+	}
+
+	appendTrackMetadataFromMediaTracklist(metadata, sourceMedia, libvlc_track_video, "Video");
+	appendTrackMetadataFromMediaTracklist(metadata, sourceMedia, libvlc_track_audio, "Audio");
+	appendTrackMetadataFromMediaTracklist(metadata, sourceMedia, libvlc_track_text, "Subtitle");
+
+	return metadata;
+}
+
+std::vector<std::pair<std::string, std::string>> ofxVlc4Player::getMetadataAtIndex(int index) const {
+	const std::string path = getPathAtIndex(index);
+	if (path.empty()) {
+		return {};
+	}
+
+	std::vector<std::pair<std::string, std::string>> currentMediaMetadata;
+	if (index == currentIndex && media) {
+		currentMediaMetadata = buildMetadataForMedia(media);
+		if (!currentMediaMetadata.empty()) {
+			std::lock_guard<std::mutex> lock(metadataCacheMutex);
+			const auto cached = metadataCache.find(path);
+			if (cached != metadataCache.end() &&
+				(cached->second.size() > currentMediaMetadata.size() ||
+					(hasDetailedTrackMetadata(cached->second) && !hasDetailedTrackMetadata(currentMediaMetadata)))) {
+				return cached->second;
+			}
+			metadataCache[path] = currentMediaMetadata;
+			return currentMediaMetadata;
+		}
+	}
+
+	std::vector<std::pair<std::string, std::string>> cachedMetadata;
+	{
+		std::lock_guard<std::mutex> lock(metadataCacheMutex);
+		const auto cached = metadataCache.find(path);
+		if (cached != metadataCache.end()) {
+			cachedMetadata = cached->second;
+			if (hasDetailedTrackMetadata(cachedMetadata)) {
+				return cachedMetadata;
+			}
+		}
+	}
+
+	if (!libvlc) {
+		return cachedMetadata;
+	}
+
+	libvlc_media_t * inspectMedia = isUri(path)
+		? libvlc_media_new_location(path.c_str())
+		: libvlc_media_new_path(path.c_str());
+	if (!inspectMedia) {
+		return cachedMetadata.empty() ? currentMediaMetadata : cachedMetadata;
+	}
+
+	libvlc_media_parse_flag_t parseFlags = libvlc_media_parse_forced;
+	if (isUri(path)) {
+		parseFlags = static_cast<libvlc_media_parse_flag_t>(
+			parseFlags | libvlc_media_parse_network | libvlc_media_fetch_network);
+	} else {
+		parseFlags = static_cast<libvlc_media_parse_flag_t>(
+			parseFlags | libvlc_media_parse_local | libvlc_media_fetch_local);
+	}
+	if (libvlc_media_parse_request(libvlc, inspectMedia, parseFlags, 1500) == 0) {
+		waitForMediaParse(inspectMedia, 1500);
+	}
+
+	std::vector<std::pair<std::string, std::string>> metadata = buildMetadataForMedia(inspectMedia);
+	libvlc_media_release(inspectMedia);
+
+	if (metadata.empty()) {
+		if (!cachedMetadata.empty()) {
+			return cachedMetadata;
+		}
+		return currentMediaMetadata;
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(metadataCacheMutex);
+		const auto cached = metadataCache.find(path);
+		if (cached == metadataCache.end() ||
+			metadata.size() >= cached->second.size() ||
+			hasDetailedTrackMetadata(metadata)) {
+			metadataCache[path] = metadata;
+		}
+	}
+
+	return metadata;
+}
+
+std::vector<std::pair<std::string, std::string>> ofxVlc4Player::getCurrentMetadata() const {
+	return getMetadataAtIndex(currentIndex);
 }
 
 bool ofxVlc4Player::isInitialized() const {
@@ -1020,6 +1662,7 @@ std::string ofxVlc4Player::getPlaybackModeString() const {
 void ofxVlc4Player::setShuffleEnabled(bool enabled) {
 	shuffleEnabled = enabled;
 	setStatus(std::string("Shuffle ") + (enabled ? "enabled." : "disabled."));
+	logNotice(std::string("Shuffle ") + (enabled ? "enabled." : "disabled."));
 }
 
 bool ofxVlc4Player::isShuffleEnabled() const {
@@ -1045,6 +1688,213 @@ void ofxVlc4Player::setAudioCaptureEnabled(bool enabled) {
 
 bool ofxVlc4Player::isAudioCaptureEnabled() const {
 	return audioCaptureEnabled;
+}
+
+bool ofxVlc4Player::isEqualizerEnabled() const {
+	return equalizerEnabled;
+}
+
+void ofxVlc4Player::setEqualizerEnabled(bool enabled) {
+	equalizerEnabled = enabled;
+	applyEqualizerSettings();
+	setStatus(std::string("Equalizer ") + (enabled ? "enabled." : "disabled."));
+	logNotice(std::string("Equalizer ") + (enabled ? "enabled." : "disabled."));
+}
+
+float ofxVlc4Player::getEqualizerPreamp() const {
+	return equalizerPreamp;
+}
+
+void ofxVlc4Player::setEqualizerPreamp(float preamp) {
+	equalizerEnabled = true;
+	equalizerPreamp = ofClamp(preamp, -20.0f, 20.0f);
+	equalizerPresetIndex = -1;
+	applyEqualizerSettings();
+}
+
+int ofxVlc4Player::getEqualizerBandCount() const {
+	return static_cast<int>(equalizerBandAmps.size());
+}
+
+float ofxVlc4Player::getEqualizerBandFrequency(int index) const {
+	if (index < 0 || index >= static_cast<int>(equalizerBandAmps.size())) {
+		return -1.0f;
+	}
+
+	return libvlc_audio_equalizer_get_band_frequency(static_cast<unsigned>(index));
+}
+
+float ofxVlc4Player::getEqualizerBandAmp(int index) const {
+	if (index < 0 || index >= static_cast<int>(equalizerBandAmps.size())) {
+		return 0.0f;
+	}
+
+	return equalizerBandAmps[index];
+}
+
+void ofxVlc4Player::setEqualizerBandAmp(int index, float amp) {
+	if (index < 0 || index >= static_cast<int>(equalizerBandAmps.size())) {
+		return;
+	}
+
+	equalizerEnabled = true;
+	equalizerBandAmps[index] = ofClamp(amp, -20.0f, 20.0f);
+	equalizerPresetIndex = -1;
+	applyEqualizerSettings();
+}
+
+int ofxVlc4Player::getEqualizerPresetCount() const {
+	return static_cast<int>(libvlc_audio_equalizer_get_preset_count());
+}
+
+std::string ofxVlc4Player::getEqualizerPresetName(int index) const {
+	if (index < 0 || index >= getEqualizerPresetCount()) {
+		return "";
+	}
+
+	const char * name = libvlc_audio_equalizer_get_preset_name(static_cast<unsigned>(index));
+	return name ? name : "";
+}
+
+int ofxVlc4Player::getEqualizerPresetIndex() const {
+	return equalizerPresetIndex;
+}
+
+void ofxVlc4Player::applyEqualizerPreset(int index) {
+	if (index < 0 || index >= getEqualizerPresetCount()) {
+		return;
+	}
+
+	libvlc_equalizer_t * equalizer = libvlc_audio_equalizer_new_from_preset(static_cast<unsigned>(index));
+	if (!equalizer) {
+		logWarning("Equalizer preset could not be loaded.");
+		return;
+	}
+
+	equalizerEnabled = true;
+	equalizerPresetIndex = index;
+	equalizerPreamp = libvlc_audio_equalizer_get_preamp(equalizer);
+	for (unsigned i = 0; i < equalizerBandAmps.size(); ++i) {
+		equalizerBandAmps[i] = libvlc_audio_equalizer_get_amp_at_index(equalizer, i);
+	}
+
+	if (mediaPlayer && libvlc_media_player_set_equalizer(mediaPlayer, equalizer) != 0) {
+		logWarning("Equalizer preset could not be applied.");
+	}
+
+	libvlc_audio_equalizer_release(equalizer);
+	setStatus("Equalizer preset applied.");
+	const std::string presetName = getEqualizerPresetName(index);
+	if (!presetName.empty()) {
+		logNotice("Equalizer preset applied: " + presetName + ".");
+	}
+}
+
+void ofxVlc4Player::resetEqualizer() {
+	equalizerEnabled = true;
+	equalizerPresetIndex = -1;
+	equalizerPreamp = 0.0f;
+	std::fill(equalizerBandAmps.begin(), equalizerBandAmps.end(), 0.0f);
+	applyEqualizerSettings();
+	setStatus("Equalizer reset.");
+	logNotice("Equalizer reset.");
+}
+
+ofxVlc4Player::VideoProjectionMode ofxVlc4Player::getVideoProjectionMode() const {
+	return videoProjectionMode;
+}
+
+void ofxVlc4Player::setVideoProjectionMode(VideoProjectionMode mode) {
+	if (videoProjectionMode == mode) {
+		return;
+	}
+
+	videoProjectionMode = mode;
+	applyVideoProjectionMode();
+	std::string modeLabel = "Auto";
+	switch (mode) {
+	case VideoProjectionMode::Rectangular:
+		modeLabel = "Rectangular";
+		break;
+	case VideoProjectionMode::Equirectangular:
+		modeLabel = "360 Equirectangular";
+		break;
+	case VideoProjectionMode::CubemapStandard:
+		modeLabel = "Cubemap";
+		break;
+	case VideoProjectionMode::Auto:
+	default:
+		break;
+	}
+	setStatus("3D projection set.");
+	logNotice("3D projection set: " + modeLabel + ".");
+}
+
+ofxVlc4Player::VideoStereoMode ofxVlc4Player::getVideoStereoMode() const {
+	return videoStereoMode;
+}
+
+void ofxVlc4Player::setVideoStereoMode(VideoStereoMode mode) {
+	if (videoStereoMode == mode) {
+		return;
+	}
+
+	videoStereoMode = mode;
+	applyVideoStereoMode();
+	std::string modeLabel = "Auto";
+	switch (mode) {
+	case VideoStereoMode::Stereo:
+		modeLabel = "Stereo";
+		break;
+	case VideoStereoMode::LeftEye:
+		modeLabel = "Left eye";
+		break;
+	case VideoStereoMode::RightEye:
+		modeLabel = "Right eye";
+		break;
+	case VideoStereoMode::SideBySide:
+		modeLabel = "Side by side";
+		break;
+	case VideoStereoMode::Auto:
+	default:
+		break;
+	}
+	setStatus("3D stereo mode set.");
+	logNotice("3D stereo mode set: " + modeLabel + ".");
+}
+
+float ofxVlc4Player::getVideoYaw() const {
+	return videoViewYaw;
+}
+
+float ofxVlc4Player::getVideoPitch() const {
+	return videoViewPitch;
+}
+
+float ofxVlc4Player::getVideoRoll() const {
+	return videoViewRoll;
+}
+
+float ofxVlc4Player::getVideoFov() const {
+	return videoViewFov;
+}
+
+void ofxVlc4Player::setVideoViewpoint(float yaw, float pitch, float roll, float fov, bool absolute) {
+	videoViewYaw = ofClamp(yaw, -180.0f, 180.0f);
+	videoViewPitch = ofClamp(pitch, -90.0f, 90.0f);
+	videoViewRoll = ofClamp(roll, -180.0f, 180.0f);
+	videoViewFov = ofClamp(fov, 1.0f, 179.0f);
+	applyVideoViewpoint(absolute);
+}
+
+void ofxVlc4Player::resetVideoViewpoint() {
+	videoViewYaw = 0.0f;
+	videoViewPitch = 0.0f;
+	videoViewRoll = 0.0f;
+	videoViewFov = 80.0f;
+	applyVideoViewpoint();
+	setStatus("3D view reset.");
+	logNotice("3D view reset.");
 }
 
 void ofxVlc4Player::setPosition(float pct) {
@@ -1075,7 +1925,33 @@ bool ofxVlc4Player::isPlaying() {
 }
 
 bool ofxVlc4Player::isStopped() {
-	return !mediaPlayer || libvlc_media_player_get_state(mediaPlayer) == libvlc_Stopped;
+	return !mediaPlayer || isStoppedOrIdleState(libvlc_media_player_get_state(mediaPlayer));
+}
+
+bool ofxVlc4Player::isPlaybackTransitioning() const {
+	return mediaPlayer && isTransientPlaybackState(libvlc_media_player_get_state(mediaPlayer));
+}
+
+bool ofxVlc4Player::isPlaybackRestartPending() const {
+	if (!playbackWanted.load()) {
+		return false;
+	}
+
+	// Repeat/queued activation briefly moves through stopped/transient VLC states even though
+	// the app should keep showing the previous preview until the replacement frame arrives.
+	if (pendingManualStopEvents.load() > 0 ||
+		pendingActivateIndex.load() >= 0 ||
+		pendingActivateReady.load() ||
+		playNextRequested.load()) {
+		return true;
+	}
+
+	if (!mediaPlayer) {
+		return false;
+	}
+
+	const libvlc_state_t state = libvlc_media_player_get_state(mediaPlayer);
+	return isStoppedOrIdleState(state) || isTransientPlaybackState(state);
 }
 
 bool ofxVlc4Player::isSeekable() {
@@ -1108,8 +1984,10 @@ void ofxVlc4Player::setVolume(int volume) {
 void ofxVlc4Player::toggleMute() {
 	if (currentVolume.load() > 0) {
 		currentVolume.store(0);
+		logNotice("Mute enabled.");
 	} else {
 		currentVolume.store(100);
+		logNotice("Mute disabled.");
 	}
 }
 
@@ -1126,22 +2004,13 @@ bool ofxVlc4Player::videoResize(void * data, const libvlc_video_render_cfg_t * c
 	render_cfg->transfer = libvlc_video_transfer_func_SRGB;
 	render_cfg->orientation = libvlc_video_orient_top_left;
 
-	if (cfg->width != that->videoWidth.load() || cfg->height != that->videoHeight.load()) {
-		that->pendingVideoWidth.store(cfg->width);
-		that->pendingVideoHeight.store(cfg->height);
+	if (cfg->width != that->renderWidth.load() || cfg->height != that->renderHeight.load()) {
+		that->pendingRenderWidth.store(cfg->width);
+		that->pendingRenderHeight.store(cfg->height);
 		that->pendingResize.store(true);
 	}
 
 	return true;
-}
-
-void ofxVlc4Player::updateVideoResources() {
-	if (!pendingResize.load()) {
-		return;
-	}
-
-	std::lock_guard<std::mutex> lock(videoMutex);
-	applyPendingVideoResize();
 }
 
 void ofxVlc4Player::videoSwap(void * data) {
@@ -1149,6 +2018,9 @@ void ofxVlc4Player::videoSwap(void * data) {
 	if (!that || that->shuttingDown.load()) {
 		return;
 	}
+
+	// Publish the VLC callback thread's GL work before the main OF thread samples the shared texture.
+	glFlush();
 }
 
 bool ofxVlc4Player::make_current(void * data, bool current) {
@@ -1157,35 +2029,14 @@ bool ofxVlc4Player::make_current(void * data, bool current) {
 		return false;
 	}
 
-	auto * win = dynamic_cast<ofAppGLFWWindow *>(that->vlcWindow.get());
-	if (!win) {
-		return false;
-	}
-
 	std::lock_guard<std::mutex> lock(that->videoMutex);
 
 	if (current) {
-		glfwMakeContextCurrent(win->getGLFWWindow());
+		that->vlcWindow->makeCurrent();
 		that->applyPendingVideoResize();
-
-		GLint prev = 0;
-		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev);
-		that->previousFramebuffer = static_cast<GLuint>(prev);
-
-		if (that->fbo.isAllocated()) {
-			glBindFramebuffer(GL_FRAMEBUFFER, that->fbo.getId());
-			const unsigned currentVideoWidth = that->videoWidth.load();
-			const unsigned currentVideoHeight = that->videoHeight.load();
-			if (currentVideoWidth > 0 && currentVideoHeight > 0) {
-				glViewport(0, 0, currentVideoWidth, currentVideoHeight);
-			}
-			that->vlcFboBound = true;
-		}
+		that->bindVlcRenderTarget();
 	} else {
-		if (that->vlcFboBound) {
-			glBindFramebuffer(GL_FRAMEBUFFER, that->previousFramebuffer);
-			that->vlcFboBound = false;
-		}
+		that->unbindVlcRenderTarget();
 		glfwMakeContextCurrent(nullptr);
 	}
 
@@ -1197,32 +2048,54 @@ void * ofxVlc4Player::get_proc_address(void * data, const char * name) {
 	return name ? (void *)glfwGetProcAddress(name) : nullptr;
 }
 
-void ofxVlc4Player::draw(float x, float y, float w, float h) {
-	std::lock_guard<std::mutex> lock(videoMutex);
-	const libvlc_state_t state = mediaPlayer ? libvlc_media_player_get_state(mediaPlayer) : libvlc_Stopped;
-	if (isStoppedOrIdleState(state)) {
+void ofxVlc4Player::bindVlcRenderTarget() {
+	if (!fbo.isAllocated()) {
 		return;
 	}
 
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo.getId());
+	const unsigned currentRenderWidth = renderWidth.load();
+	const unsigned currentRenderHeight = renderHeight.load();
+	if (currentRenderWidth > 0 && currentRenderHeight > 0) {
+		ofViewport(0, 0, static_cast<float>(currentRenderWidth), static_cast<float>(currentRenderHeight), false);
+	}
+	vlcFboBound = true;
+}
+
+void ofxVlc4Player::unbindVlcRenderTarget() {
+	if (!vlcFboBound) {
+		return;
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	vlcFboBound = false;
+}
+
+bool ofxVlc4Player::drawCurrentFrame(float x, float y, float width, float height) {
 	const unsigned currentVideoWidth = videoWidth.load();
 	const unsigned currentVideoHeight = videoHeight.load();
-	if (fbo.isAllocated() && currentVideoWidth > 0 && currentVideoHeight > 0) {
-		fbo.getTexture().drawSubsection(x, y, w, h, 0, 0, currentVideoWidth, currentVideoHeight);
+	const unsigned currentRenderWidth = renderWidth.load();
+	const unsigned currentRenderHeight = renderHeight.load();
+	const float sourceWidth = static_cast<float>(std::min(currentVideoWidth, currentRenderWidth));
+	const float sourceHeight = static_cast<float>(std::min(currentVideoHeight, currentRenderHeight));
+	if (!fbo.isAllocated() || sourceWidth <= 0.0f || sourceHeight <= 0.0f) {
+		return false;
 	}
+
+	fbo.getTexture().drawSubsection(x, y, width, height, 0, 0, sourceWidth, sourceHeight);
+	return true;
+}
+
+void ofxVlc4Player::draw(float x, float y, float w, float h) {
+	std::lock_guard<std::mutex> lock(videoMutex);
+	drawCurrentFrame(x, y, w, h);
 }
 
 void ofxVlc4Player::draw(float x, float y) {
 	std::lock_guard<std::mutex> lock(videoMutex);
-	const libvlc_state_t state = mediaPlayer ? libvlc_media_player_get_state(mediaPlayer) : libvlc_Stopped;
-	if (isStoppedOrIdleState(state)) {
-		return;
-	}
-
-	const unsigned currentVideoWidth = videoWidth.load();
-	const unsigned currentVideoHeight = videoHeight.load();
-	if (fbo.isAllocated() && currentVideoWidth > 0 && currentVideoHeight > 0) {
-		fbo.getTexture().drawSubsection(x, y, currentVideoWidth, currentVideoHeight, 0, 0, currentVideoWidth, currentVideoHeight);
-	}
+	const float displayWidth = getWidth();
+	const float displayHeight = getHeight();
+	drawCurrentFrame(x, y, displayWidth, displayHeight);
 }
 
 void ofxVlc4Player::updateRecorder() {
@@ -1238,22 +2111,30 @@ void ofxVlc4Player::refreshExposedTexture() {
 	std::lock_guard<std::mutex> lock(videoMutex);
 	const unsigned currentVideoWidth = videoWidth.load();
 	const unsigned currentVideoHeight = videoHeight.load();
-	if (!fbo.isAllocated() || currentVideoWidth == 0 || currentVideoHeight == 0) {
+	const unsigned currentRenderWidth = renderWidth.load();
+	const unsigned currentRenderHeight = renderHeight.load();
+	const unsigned sourceWidth = std::min(currentVideoWidth, currentRenderWidth);
+	const unsigned sourceHeight = std::min(currentVideoHeight, currentRenderHeight);
+	if (!fbo.isAllocated() || sourceWidth == 0 || sourceHeight == 0) {
 		return;
 	}
 
-	ensureExposedTextureFboCapacity(currentVideoWidth, currentVideoHeight);
+	ensureExposedTextureFboCapacity(sourceWidth, sourceHeight);
 	exposedTextureFbo.begin();
-	ofClear(0, 0, 0, 0);
+	ofClear(0, 0, 0, 255);
+	ofPushStyle();
+	ofEnableBlendMode(OF_BLENDMODE_DISABLED);
+	ofSetColor(255, 255, 255, 255);
 	fbo.getTexture().drawSubsection(
 		0.0f,
 		0.0f,
-		static_cast<float>(currentVideoWidth),
-		static_cast<float>(currentVideoHeight),
+		static_cast<float>(sourceWidth),
+		static_cast<float>(sourceHeight),
 		0.0f,
 		0.0f,
-		static_cast<float>(currentVideoWidth),
-		static_cast<float>(currentVideoHeight));
+		static_cast<float>(sourceWidth),
+		static_cast<float>(sourceHeight));
+	ofPopStyle();
 	exposedTextureFbo.end();
 }
 
@@ -1382,17 +2263,127 @@ void ofxVlc4Player::vlcMediaEventStatic(const libvlc_event_t * event, void * dat
 
 void ofxVlc4Player::vlcMediaEvent(const libvlc_event_t * event) {
 	if (event->type == libvlc_MediaParsedChanged && media) {
-		libvlc_media_tracklist_t * tracklist = libvlc_media_get_tracklist(media, libvlc_track_video);
-		if (tracklist) {
-			size_t count = libvlc_media_tracklist_count(tracklist);
-			for (size_t i = 0; i < count; ++i) {
-				const libvlc_media_track_t * track = libvlc_media_tracklist_at(tracklist, i);
-				if (track && track->i_type == libvlc_track_video && track->video) {
-				}
-			}
-			libvlc_media_tracklist_delete(tracklist);
+		refreshPixelAspectRatio();
+		refreshDisplayAspectRatio();
+		return;
+	}
+
+	if (event->type == libvlc_MediaAttachedThumbnailsFound) {
+		libvlc_picture_list_t * thumbnails = event->u.media_attached_thumbnails_found.thumbnails;
+		if (!thumbnails || libvlc_picture_list_count(thumbnails) == 0) {
+			return;
+		}
+
+		libvlc_picture_t * picture = libvlc_picture_list_at(thumbnails, 0);
+		if (!picture) {
+			return;
+		}
+
+		const std::string currentPath = getCurrentPath();
+		const std::string artworkStem = currentPath.empty()
+			? "current_media"
+			: mediaLabelForPath(currentPath);
+		const std::string tempFileName =
+			"ofxvlc4player_artwork_" + ofToString(std::hash<std::string>{}(artworkStem)) +
+			artworkFileExtension(libvlc_picture_type(picture));
+		const std::filesystem::path tempPath = std::filesystem::temp_directory_path() / tempFileName;
+		if (libvlc_picture_save(picture, tempPath.string().c_str()) == 0) {
+			cacheArtworkPathForCurrentMedia(tempPath.string());
 		}
 	}
+}
+
+bool ofxVlc4Player::queryVideoTrackGeometry(unsigned & width, unsigned & height, unsigned & sarNum, unsigned & sarDen) const {
+	width = 0;
+	height = 0;
+	sarNum = 1;
+	sarDen = 1;
+
+	if (!mediaPlayer) {
+		return false;
+	}
+
+	auto applyVideoTrackGeometry = [&](const libvlc_media_track_t * track) {
+		if (!track || track->i_type != libvlc_track_video || !track->video) {
+			return false;
+		}
+
+		if (track->video->i_width == 0 || track->video->i_height == 0) {
+			return false;
+		}
+
+		width = track->video->i_width;
+		height = track->video->i_height;
+		sarNum = track->video->i_sar_num > 0 ? track->video->i_sar_num : 1u;
+		sarDen = track->video->i_sar_den > 0 ? track->video->i_sar_den : 1u;
+		return true;
+	};
+
+	libvlc_media_track_t * selectedTrack =
+		libvlc_media_player_get_selected_track(mediaPlayer, libvlc_track_video);
+	if (selectedTrack) {
+		const bool foundSelectedTrack = applyVideoTrackGeometry(selectedTrack);
+		libvlc_media_track_release(selectedTrack);
+		if (foundSelectedTrack) {
+			return true;
+		}
+	}
+
+	auto readTracklistGeometry = [&](bool selectedOnly) {
+		libvlc_media_tracklist_t * tracklist =
+			libvlc_media_player_get_tracklist(mediaPlayer, libvlc_track_video, selectedOnly);
+		if (!tracklist) {
+			return false;
+		}
+
+		const size_t trackCount = libvlc_media_tracklist_count(tracklist);
+		for (size_t i = 0; i < trackCount; ++i) {
+			const libvlc_media_track_t * track = libvlc_media_tracklist_at(tracklist, i);
+			if (applyVideoTrackGeometry(track)) {
+				libvlc_media_tracklist_delete(tracklist);
+				return true;
+			}
+		}
+
+		libvlc_media_tracklist_delete(tracklist);
+		return false;
+	};
+
+	if (readTracklistGeometry(true) || readTracklistGeometry(false)) {
+		return true;
+	}
+
+	if (media) {
+		libvlc_media_tracklist_t * mediaTracklist = libvlc_media_get_tracklist(media, libvlc_track_video);
+		if (mediaTracklist) {
+			const size_t trackCount = libvlc_media_tracklist_count(mediaTracklist);
+			for (size_t i = 0; i < trackCount; ++i) {
+				const libvlc_media_track_t * track = libvlc_media_tracklist_at(mediaTracklist, i);
+				if (applyVideoTrackGeometry(track)) {
+					libvlc_media_tracklist_delete(mediaTracklist);
+					return true;
+				}
+			}
+			libvlc_media_tracklist_delete(mediaTracklist);
+		}
+	}
+
+	return false;
+}
+
+void ofxVlc4Player::refreshPixelAspectRatio() {
+	unsigned trackWidth = 0;
+	unsigned trackHeight = 0;
+	unsigned sarNum = 1;
+	unsigned sarDen = 1;
+	if (queryVideoTrackGeometry(trackWidth, trackHeight, sarNum, sarDen)) {
+		pixelAspectNumerator.store(sarNum);
+		pixelAspectDenominator.store(sarDen);
+		return;
+	}
+
+	pixelAspectNumerator.store(1);
+	pixelAspectDenominator.store(1);
 }
 
 void ofxVlc4Player::close() {
@@ -1411,7 +2402,6 @@ void ofxVlc4Player::close() {
 	isAudioReady.store(false);
 	isVideoLoaded.store(false);
 	vlcFboBound = false;
-	previousFramebuffer = 0;
 	setStatus("Player closed.");
 }
 
@@ -1428,11 +2418,6 @@ uint64_t ofxVlc4Player::getAudioUnderrunCount() const {
 }
 
 void ofxVlc4Player::refreshDisplayAspectRatio() {
-	if (!mediaPlayer) {
-		displayAspectRatio.store(1.0f);
-		return;
-	}
-
 	const unsigned currentVideoWidth = videoWidth.load();
 	const unsigned currentVideoHeight = videoHeight.load();
 	if (currentVideoWidth == 0 || currentVideoHeight == 0) {
@@ -1440,30 +2425,25 @@ void ofxVlc4Player::refreshDisplayAspectRatio() {
 		return;
 	}
 
-	float aspect = static_cast<float>(currentVideoWidth) / static_cast<float>(currentVideoHeight);
-	char * aspectText = libvlc_video_get_aspect_ratio(mediaPlayer);
-	if (aspectText) {
-		std::string value(aspectText);
-		libvlc_free(aspectText);
+	refreshPixelAspectRatio();
 
-		const size_t separator = value.find(':');
-		if (separator != std::string::npos) {
-			const float left = static_cast<float>(std::atof(value.substr(0, separator).c_str()));
-			const float right = static_cast<float>(std::atof(value.substr(separator + 1).c_str()));
-			if (left > 0.0f && right > 0.0f) {
-				aspect = left / right;
-			}
-		} else {
-			const float parsed = static_cast<float>(std::atof(value.c_str()));
-			if (parsed > 0.0f) {
-				aspect = parsed;
-			}
+	float aspect = static_cast<float>(currentVideoWidth) / static_cast<float>(currentVideoHeight);
+	unsigned trackWidth = 0;
+	unsigned trackHeight = 0;
+	unsigned ignoredSarNum = 1;
+	unsigned ignoredSarDen = 1;
+	if (queryVideoTrackGeometry(trackWidth, trackHeight, ignoredSarNum, ignoredSarDen)) {
+		if (trackWidth > 0 && trackHeight > 0) {
+			aspect = static_cast<float>(trackWidth) / static_cast<float>(trackHeight);
 		}
+	}
+
+	const unsigned sarNum = pixelAspectNumerator.load();
+	const unsigned sarDen = pixelAspectDenominator.load();
+	if (sarNum > 0 && sarDen > 0) {
+		aspect *= static_cast<float>(sarNum) / static_cast<float>(sarDen);
 	}
 
 	displayAspectRatio.store(std::max(aspect, 0.0001f));
 }
 
-bool ofxVlc4Player::videoReadyEvent() {
-	return isVideoLoaded.exchange(false);
-}
