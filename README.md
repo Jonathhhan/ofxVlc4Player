@@ -1,29 +1,69 @@
-Inspired by: https://github.com/jnakanojp/ofxVLCVideoPlayer 
+Inspired by [ofxVLCVideoPlayer](https://github.com/jnakanojp/ofxVLCVideoPlayer).
 
-Binds libvlc 4. 
+`ofxVlc4Player` binds libVLC 4 for openFrameworks.
 
+## Installing libVLC
 
-Windows:
+The addon ships with helper scripts that download libVLC into the addon-local `libs/libvlc` layout.
 
-Copy the plugins and lua folder, libvlc.dll, libvlccore.dll and axvlc.dll to the OF project folder:
-https://artifacts.videolan.org/vlc/nightly-win64-llvm/
+### Windows
 
-Linux (Ubuntu):
+Run:
 
-Install vlc 4 and libvlc:
+```powershell
+scripts\install-libvlc.ps1
+```
 
+Or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-libvlc.ps1
+```
+
+What it does:
+
+- Downloads the latest VLC nightly runtime from VideoLAN.
+- Downloads public libVLC headers from the VLC `master` branch.
+- Installs headers into `libs/libvlc/include`.
+- Installs `libvlc.lib` into `libs/libvlc/lib/vs`.
+- Copies `libvlc.dll`, `libvlccore.dll`, `plugins`, and `lua` into each example `bin` folder.
+
+The installer uses a temporary directory outside the addon tree while downloading and extracting archives, which helps avoid filesystem issues when the addon lives in a OneDrive-synced folder.
+
+### Linux / WSL
+
+Run:
+
+```bash
+bash scripts/install-libvlc.sh
+```
+
+This wrapper calls the same PowerShell installer, so it is mainly useful from WSL or Git Bash on Windows.
+
+### Native Linux (Ubuntu)
+
+Install VLC 4 and libVLC development files:
+
+```bash
 sudo add-apt-repository ppa:videolan/master-daily
+sudo apt-get update
+sudo apt-get install vlc libvlc-dev
+```
 
-sudo apt-get update && sudo apt-get install vlc
+The addon links against `libvlc` through `pkg-config` on Linux.
 
-sudo apt-get install libvlc-dev
+### Linux with Nvidia GPU
 
+You may also need the Nvidia VA-API driver:
 
-For Linux and Nvidia GPU:
+- [nvidia-vaapi-driver](https://github.com/elFarto/nvidia-vaapi-driver)
 
-https://github.com/elFarto/nvidia-vaapi-driver
+Example environment setup:
 
+```bash
 export LIBVA_DRIVER_NAME=nvidia
+```
 
+## Example dependency
 
-The example depends on the ofxProjectM addon: https://github.com/Jonathhhan/ofxProjectM
+The example app also depends on [ofxProjectM](https://github.com/Jonathhhan/ofxProjectM).
