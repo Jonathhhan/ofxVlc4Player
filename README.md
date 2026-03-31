@@ -76,3 +76,15 @@ Example:
 ```bash
 git clone --branch develop https://github.com/jvcleave/ofxImGui.git
 ```
+
+## Recommended projectM assets
+
+For the `ofxProjectM`-powered parts of the example, these packs are recommended:
+
+- [presets-cream-of-the-crop](https://github.com/projectM-visualizer/presets-cream-of-the-crop)
+- [presets-milkdrop-texture-pack](https://github.com/projectM-visualizer/presets-milkdrop-texture-pack)
+
+Place them like this:
+
+- Presets from `presets-cream-of-the-crop` go in the `presets` folder.
+- Textures from `presets-milkdrop-texture-pack` go in the `textures` folder.
