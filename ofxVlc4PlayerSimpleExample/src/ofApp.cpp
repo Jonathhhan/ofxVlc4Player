@@ -24,6 +24,84 @@ bool looksLikeUri(const std::string & path) {
 	return path.find("://") != std::string::npos;
 }
 
+std::string resolveInputPath(const std::string & rawPath);
+
+std::string decodeUrlComponent(const std::string & value) {
+	std::string decoded;
+	decoded.reserve(value.size());
+	for (size_t i = 0; i < value.size(); ++i) {
+		if (value[i] == '%' && i + 2 < value.size()) {
+			const char hi = value[i + 1];
+			const char lo = value[i + 2];
+			const auto hexToInt = [](char c) -> int {
+				if (c >= '0' && c <= '9') {
+					return c - '0';
+				}
+				if (c >= 'a' && c <= 'f') {
+					return 10 + (c - 'a');
+				}
+				if (c >= 'A' && c <= 'F') {
+					return 10 + (c - 'A');
+				}
+				return -1;
+			};
+			const int hiValue = hexToInt(hi);
+			const int loValue = hexToInt(lo);
+			if (hiValue >= 0 && loValue >= 0) {
+				decoded.push_back(static_cast<char>((hiValue << 4) | loValue));
+				i += 2;
+				continue;
+			}
+		}
+		decoded.push_back(value[i]);
+	}
+	return decoded;
+}
+
+std::string findMetadataValue(
+	const std::vector<std::pair<std::string, std::string>> & metadata,
+	const std::string & label) {
+	for (const auto & [entryLabel, entryValue] : metadata) {
+		if (entryLabel == label) {
+			return entryValue;
+		}
+	}
+	return "";
+}
+
+bool mediaHasVideoTrack(const std::vector<std::pair<std::string, std::string>> & metadata) {
+	return !findMetadataValue(metadata, "Video Codec").empty() ||
+		!findMetadataValue(metadata, "Video Resolution").empty();
+}
+
+bool hasUsableTextureSize(const ofTexture & texture) {
+	return texture.isAllocated() &&
+		texture.getWidth() > 1.0f &&
+		texture.getHeight() > 1.0f;
+}
+
+std::string resolveArtworkPath(const std::string & rawArtworkUrl) {
+	std::string artworkPath = ofTrim(rawArtworkUrl);
+	if (artworkPath.empty()) {
+		return "";
+	}
+
+	const std::string lowerPath = ofToLower(artworkPath);
+	if (ofIsStringInString(lowerPath, "attachment://")) {
+		return "";
+	}
+
+	if (lowerPath.rfind("file:///", 0) == 0) {
+		artworkPath = decodeUrlComponent(artworkPath.substr(8));
+	} else if (lowerPath.rfind("file://", 0) == 0) {
+		artworkPath = decodeUrlComponent(artworkPath.substr(7));
+	} else {
+		artworkPath = decodeUrlComponent(artworkPath);
+	}
+
+	return resolveInputPath(artworkPath);
+}
+
 bool pathExists(const std::string & path) {
 	return ofFile::doesFileExist(path, true) || ofDirectory::doesDirectoryExist(path, true);
 }
@@ -45,6 +123,7 @@ std::string resolveInputPath(const std::string & rawPath) {
 		return normalizedPath;
 	}
 
+	// Prefer explicit absolute/relative filesystem paths first, then fall back to OF's data folder lookup.
 	if (pathExists(normalizedPath)) {
 		return normalizedPath;
 	}
@@ -67,6 +146,24 @@ void clearAllocatedFbo(ofFbo & fbo) {
 	fbo.end();
 }
 
+void resetPreviewFbo(ofFbo & fbo) {
+	fbo.allocate(1, 1, GL_RGBA);
+	clearAllocatedFbo(fbo);
+}
+
+void clearVideoPreviewState(
+	ofFbo & fbo,
+	ofImage & artworkImage,
+	std::string & artworkPath,
+	float & previewWidth,
+	float & previewHeight) {
+	resetPreviewFbo(fbo);
+	artworkImage.clear();
+	artworkPath.clear();
+	previewWidth = 0.0f;
+	previewHeight = 0.0f;
+}
+
 void drawProjectMSourceImageToFbo(ofFbo & targetFbo, const ofImage & image) {
 	if (!targetFbo.isAllocated()) {
 		return;
@@ -79,76 +176,16 @@ void drawProjectMSourceImageToFbo(ofFbo & targetFbo, const ofImage & image) {
 	}
 	targetFbo.end();
 }
-}
 
-namespace {
-bool usesProjectMVideoSource(ofApp::ProjectMTextureSourceMode mode) {
-	return mode == ofApp::ProjectMTextureSourceMode::MainPlayerVideo ||
-		mode == ofApp::ProjectMTextureSourceMode::PlayerVideo ||
-		mode == ofApp::ProjectMTextureSourceMode::CustomVideo;
-}
-
-bool usesHiddenProjectMVideoSource(ofApp::ProjectMTextureSourceMode mode) {
-	return mode == ofApp::ProjectMTextureSourceMode::PlayerVideo ||
-		mode == ofApp::ProjectMTextureSourceMode::CustomVideo;
-}
-
-struct HiddenVideoPlayerState {
-	std::vector<std::string> playlist;
-	int currentIndex = -1;
-	ofxVlc4Player::PlaybackMode playbackMode = ofxVlc4Player::PlaybackMode::Default;
-	bool wasPlaying = false;
-	bool wasStopped = true;
-};
-
-HiddenVideoPlayerState captureHiddenVideoPlayerState(ofxVlc4Player & player) {
-	HiddenVideoPlayerState state;
-	state.playlist = player.getPlaylist();
-	state.currentIndex = player.getCurrentIndex();
-	state.playbackMode = player.getPlaybackMode();
-	state.wasPlaying = player.isPlaying();
-	state.wasStopped = player.isStopped();
-	return state;
-}
-
-void restoreHiddenVideoPlayerState(ofxVlc4Player & player, const HiddenVideoPlayerState & state) {
-	player.clearPlaylist();
-	for (const auto & entry : state.playlist) {
-		player.addToPlaylist(entry);
+void ensureFboSize(ofFbo & fbo, float width, float height) {
+	const int targetWidth = std::max(1, static_cast<int>(std::ceil(width)));
+	const int targetHeight = std::max(1, static_cast<int>(std::ceil(height)));
+	if (!fbo.isAllocated() ||
+		static_cast<int>(fbo.getWidth()) != targetWidth ||
+		static_cast<int>(fbo.getHeight()) != targetHeight) {
+		fbo.allocate(targetWidth, targetHeight, GL_RGBA);
+		clearAllocatedFbo(fbo);
 	}
-	player.setPlaybackMode(state.playbackMode);
-
-	if (!state.playlist.empty() && state.currentIndex >= 0) {
-		const int restoreIndex = ofClamp(state.currentIndex, 0, static_cast<int>(state.playlist.size()) - 1);
-		if (state.wasPlaying) {
-			player.playIndex(restoreIndex);
-		} else if (!state.wasStopped) {
-			player.playIndex(restoreIndex);
-			player.pause();
-		}
-	}
-}
-
-ofxVlc4Player * getProjectMVideoSourcePlayer(
-	ofApp::ProjectMTextureSourceMode mode,
-	ofxVlc4Player & mainPlayer,
-	ofxVlc4Player & hiddenPlayer) {
-	if (!usesProjectMVideoSource(mode)) {
-		return nullptr;
-	}
-
-	return mode == ofApp::ProjectMTextureSourceMode::MainPlayerVideo ? &mainPlayer : &hiddenPlayer;
-}
-
-const ofxVlc4Player * getProjectMVideoSourcePlayer(
-	ofApp::ProjectMTextureSourceMode mode,
-	const ofxVlc4Player & mainPlayer,
-	const ofxVlc4Player & hiddenPlayer) {
-	if (!usesProjectMVideoSource(mode)) {
-		return nullptr;
-	}
-
-	return mode == ofApp::ProjectMTextureSourceMode::MainPlayerVideo ? &mainPlayer : &hiddenPlayer;
 }
 
 void restartCurrentProjectMPreset(ofxProjectM & projectM) {
@@ -173,8 +210,142 @@ bool ensureLoadedImage(ofImage & image, const std::string & path) {
 	}
 
 	image.clear();
+	if (!looksLikeUri(path) && ofFile::doesFileExist(path, true)) {
+		ofBuffer buffer = ofBufferFromFile(path, true);
+		return !buffer.size() ? false : image.load(buffer);
+	}
+
 	return image.load(path);
 }
+
+std::pair<glm::vec3, glm::vec3> getAnaglyphTints(AnaglyphColorMode mode) {
+	switch (mode) {
+	case AnaglyphColorMode::GreenMagenta:
+		return {
+			glm::vec3(0.0f, 1.0f, 0.0f),
+			glm::vec3(1.0f, 0.0f, 1.0f)
+		};
+	case AnaglyphColorMode::AmberBlue:
+		return {
+			glm::vec3(1.0f, 0.75f, 0.0f),
+			glm::vec3(0.0f, 0.5f, 1.0f)
+		};
+	case AnaglyphColorMode::Disabled:
+	case AnaglyphColorMode::RedCyan:
+	default:
+		return {
+			glm::vec3(1.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 1.0f, 1.0f)
+		};
+	}
+}
+}
+
+void ofApp::setupAnaglyphShader() {
+	std::string vertexSource;
+	std::string fragmentSource;
+
+	// The example keeps anaglyph rendering local: VLC still produces the stereo frame,
+	// and this shader only remaps an SBS preview into a simple red/cyan display.
+	if (ofIsGLProgrammableRenderer()) {
+		vertexSource = R"(
+			#version 150
+			uniform mat4 modelViewProjectionMatrix;
+			in vec4 position;
+			in vec2 texcoord;
+			out vec2 vTexCoord;
+			void main() {
+				vTexCoord = texcoord;
+				gl_Position = modelViewProjectionMatrix * position;
+			}
+		)";
+
+		fragmentSource = R"(
+			#version 150
+			uniform sampler2D tex0;
+			uniform vec3 leftTint;
+			uniform vec3 rightTint;
+			uniform float eyeSeparation;
+			uniform float swapEyes;
+			in vec2 vTexCoord;
+			out vec4 outputColor;
+			void main() {
+				float leftSource = (swapEyes > 0.5) ? 0.5 : 0.0;
+				float rightSource = (swapEyes > 0.5) ? 0.0 : 0.5;
+				float leftX = clamp(leftSource + vTexCoord.x * 0.5 + eyeSeparation, leftSource, leftSource + 0.5);
+				float rightX = clamp(rightSource + vTexCoord.x * 0.5 - eyeSeparation, rightSource, rightSource + 0.5);
+				vec3 leftColor = texture(tex0, vec2(leftX, vTexCoord.y)).rgb;
+				vec3 rightColor = texture(tex0, vec2(rightX, vTexCoord.y)).rgb;
+				float leftLuma = dot(leftColor, vec3(0.299, 0.587, 0.114));
+				float rightLuma = dot(rightColor, vec3(0.299, 0.587, 0.114));
+				outputColor = vec4(leftTint * leftLuma + rightTint * rightLuma, 1.0);
+			}
+		)";
+	} else {
+		vertexSource = R"(
+			#version 120
+			varying vec2 vTexCoord;
+			void main() {
+				vTexCoord = gl_MultiTexCoord0.xy;
+				gl_Position = ftransform();
+			}
+		)";
+
+		fragmentSource = R"(
+			#version 120
+			uniform sampler2D tex0;
+			uniform vec3 leftTint;
+			uniform vec3 rightTint;
+			uniform float eyeSeparation;
+			uniform float swapEyes;
+			varying vec2 vTexCoord;
+			void main() {
+				float leftSource = (swapEyes > 0.5) ? 0.5 : 0.0;
+				float rightSource = (swapEyes > 0.5) ? 0.0 : 0.5;
+				float leftX = clamp(leftSource + vTexCoord.x * 0.5 + eyeSeparation, leftSource, leftSource + 0.5);
+				float rightX = clamp(rightSource + vTexCoord.x * 0.5 - eyeSeparation, rightSource, rightSource + 0.5);
+				vec3 leftColor = texture2D(tex0, vec2(leftX, vTexCoord.y)).rgb;
+				vec3 rightColor = texture2D(tex0, vec2(rightX, vTexCoord.y)).rgb;
+				float leftLuma = dot(leftColor, vec3(0.299, 0.587, 0.114));
+				float rightLuma = dot(rightColor, vec3(0.299, 0.587, 0.114));
+				gl_FragColor = vec4(leftTint * leftLuma + rightTint * rightLuma, 1.0);
+			}
+		)";
+	}
+
+	anaglyphShaderReady =
+		anaglyphShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexSource) &&
+		anaglyphShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentSource);
+	if (anaglyphShaderReady && ofIsGLProgrammableRenderer()) {
+		anaglyphShader.bindDefaults();
+	}
+	if (anaglyphShaderReady) {
+		anaglyphShaderReady = anaglyphShader.linkProgram();
+	}
+}
+
+void ofApp::updateAnaglyphPreview() {
+	if (!anaglyphShaderReady || !videoPreviewFbo.isAllocated() || videoPreviewWidth <= 1.0f || videoPreviewHeight <= 1.0f) {
+		return;
+	}
+
+	// Anaglyph combines the left and right halves of the SBS preview into a single output,
+	// so the preview width is halved while the original height stays untouched.
+	const float targetWidth = std::max(1.0f, videoPreviewWidth * 0.5f);
+	ensureFboSize(anaglyphPreviewFbo, targetWidth, videoPreviewHeight);
+	const auto [leftTint, rightTint] = getAnaglyphTints(remoteGui.getAnaglyphColorMode());
+
+	anaglyphPreviewFbo.begin();
+	ofClear(0, 0, 0, 0);
+	anaglyphShader.begin();
+	anaglyphShader.setUniformTexture("tex0", videoPreviewFbo.getTexture(), 0);
+	anaglyphShader.setUniform3f("leftTint", leftTint.x, leftTint.y, leftTint.z);
+	anaglyphShader.setUniform3f("rightTint", rightTint.x, rightTint.y, rightTint.z);
+	anaglyphShader.setUniform1f("eyeSeparation", remoteGui.getAnaglyphEyeSeparation());
+	anaglyphShader.setUniform1f("swapEyes", remoteGui.isAnaglyphSwapEyesEnabled() ? 1.0f : 0.0f);
+	videoPreviewFbo.draw(0.0f, 0.0f, targetWidth, videoPreviewHeight);
+	anaglyphShader.end();
+	anaglyphPreviewFbo.end();
 }
 
 //--------------------------------------------------------------
@@ -194,10 +365,10 @@ void ofApp::setup() {
 	soundStream.start();
 
 	remoteGui.setup();
-	videoPreviewFbo.allocate(std::max(ofGetScreenWidth(), 1), std::max(ofGetScreenHeight(), 1), GL_RGBA);
+	setupAnaglyphShader();
 	projectMSourceFbo.allocate(std::max(ofGetScreenWidth(), 1), std::max(ofGetScreenHeight(), 1), GL_RGBA);
-	clearAllocatedFbo(videoPreviewFbo);
 	clearAllocatedFbo(projectMSourceFbo);
+	resetPreviewFbo(videoPreviewFbo);
 
 	const char * vlc_argv[] = {
 		"--file-caching=10",
@@ -206,14 +377,6 @@ void ofApp::setup() {
 	};
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 
-	const char * hidden_vlc_argv[] = {
-		"--file-caching=10",
-		"--network-caching=10",
-		"--verbose=-1",
-		"--no-audio"
-	};
-	int hidden_vlc_argc = sizeof(hidden_vlc_argv) / sizeof(*hidden_vlc_argv);
-
 	// -------- MAIN PLAYER (GUI controlled)
 	player.setAudioCaptureEnabled(true);
 	player.init(vlc_argc, vlc_argv);
@@ -221,13 +384,6 @@ void ofApp::setup() {
 
 	player.setPlaybackMode(ofxVlc4Player::PlaybackMode::Default);
 	player.setVolume(50);
-
-	// -------- VIDEO PLAYER (hidden, for projectM)
-	videoPlayer.setAudioCaptureEnabled(false);
-	videoPlayer.init(hidden_vlc_argc, hidden_vlc_argv);
-	videoPlayer.addPathToPlaylist(ofToDataPath("fingers.mp4", true), kSeedExtensions);
-	videoPlayer.setPlaybackMode(ofxVlc4Player::PlaybackMode::Repeat);
-	syncHiddenProjectMVideoPlayer();
 }
 
 //--------------------------------------------------------------
@@ -247,51 +403,100 @@ void ofApp::audioOut(ofSoundBuffer & buffer) {
 	}
 }
 
-bool ensureFboDimensions(ofFbo & fbo, int width, int height) {
-	width = std::max(width, 1);
-	height = std::max(height, 1);
-	if (fbo.isAllocated() && fbo.getWidth() == width && fbo.getHeight() == height) {
-		return false;
-	}
-
-	fbo.allocate(width, height, GL_RGBA);
-	clearAllocatedFbo(fbo);
-	return true;
-}
-
-//--------------------------------------------------------------
 void ofApp::update() {
 	player.update();
-	if (usesHiddenProjectMVideoSource(projectMTextureSourceMode) ||
-		hiddenProjectMVideoSourceWasActive ||
-		!videoPlayer.isStopped()) {
-		videoPlayer.update();
-	}
-	syncHiddenProjectMVideoPlayer();
 	ensureProjectMInitialized();
 	const bool renderProjectMPreview = remoteGui.shouldRenderProjectMPreview();
-
-	videoPreviewWidth = player.getWidth();
-	videoPreviewHeight = player.getHeight();
-	const bool renderVideoPreview = remoteGui.shouldRenderVideoPreview();
-	if (renderVideoPreview) {
-		ensureFboSize(videoPreviewFbo, static_cast<int>(videoPreviewWidth), static_cast<int>(videoPreviewHeight));
-		drawPlayerToFbo(player, videoPreviewFbo, videoPreviewWidth, videoPreviewHeight, true);
+	const ofTexture & playerTexture = player.getTexture();
+	const float currentVideoWidth = player.getWidth();
+	const float currentVideoHeight = player.getHeight();
+	const bool playerHasReportedVideoSize = currentVideoWidth > 1.0f && currentVideoHeight > 1.0f;
+	const bool playerHasTextureSize = hasUsableTextureSize(playerTexture);
+	const auto currentMetadata = player.getCurrentMetadata();
+	const bool metadataReadyForPreviewDecision = !currentMetadata.empty();
+	const bool playerHasVideoFrame =
+		(playerHasReportedVideoSize || playerHasTextureSize) &&
+		(!metadataReadyForPreviewDecision || mediaHasVideoTrack(currentMetadata));
+	const bool playbackTransitioning = player.isPlaybackTransitioning();
+	const bool playbackRestartPending = player.isPlaybackRestartPending();
+	const bool holdPreviewState = playbackTransitioning || playbackRestartPending;
+	const std::string artworkPath = resolveArtworkPath(findMetadataValue(currentMetadata, "Artwork URL"));
+	const float previewSourceWidth = playerHasReportedVideoSize ? currentVideoWidth : (playerHasTextureSize ? playerTexture.getWidth() : 0.0f);
+	const float previewSourceHeight = playerHasReportedVideoSize ? currentVideoHeight : (playerHasTextureSize ? playerTexture.getHeight() : 0.0f);
+	const bool hadPreviewContent = videoPreviewHasContent;
+	const bool hadVideoPreview = videoPreviewShowsVideo;
+	videoPreviewHasContent = false;
+	videoPreviewShowsVideo = false;
+	// Prefer VLC's reported display geometry, but fall back to the exposed texture once it is larger than 1x1.
+	if (playerHasReportedVideoSize) {
+		videoPreviewWidth = currentVideoWidth;
+		videoPreviewHeight = currentVideoHeight;
+	} else if (playerHasTextureSize && videoPreviewWidth <= 1.0f && videoPreviewHeight <= 1.0f) {
+		videoPreviewWidth = playerTexture.getWidth();
+		videoPreviewHeight = playerTexture.getHeight();
 	}
-
-	if (projectMInitialized &&
-		renderProjectMPreview &&
-		usesProjectMVideoSource(projectMTextureSourceMode)) {
-		ofxVlc4Player * projectMSourcePlayer = getProjectMVideoSourcePlayer(projectMTextureSourceMode, player, videoPlayer);
-		if (projectMSourcePlayer) {
-		drawPlayerToFbo(
-			*projectMSourcePlayer,
-			projectMSourceFbo,
-			projectMSourcePlayer->getWidth(),
-			projectMSourcePlayer->getHeight(),
-			false);
+	if (playerHasVideoFrame && previewSourceWidth > 1.0f && previewSourceHeight > 1.0f) {
+		ensureFboSize(videoPreviewFbo, previewSourceWidth, previewSourceHeight);
+		videoPreviewFbo.begin();
+		ofClear(0, 0, 0, 255);
+		player.draw(0.0f, 0.0f, previewSourceWidth, previewSourceHeight);
+		videoPreviewFbo.end();
+		videoPreviewHasContent = true;
+		videoPreviewShowsVideo = true;
+	} else if (!player.isStopped() && !artworkPath.empty()) {
+		if (videoPreviewArtworkPath != artworkPath) {
+			videoPreviewArtworkPath = artworkPath;
+			videoPreviewArtworkImage.clear();
+		}
+		if (ensureLoadedImage(videoPreviewArtworkImage, artworkPath) &&
+			videoPreviewArtworkImage.isAllocated() &&
+			videoPreviewArtworkImage.getWidth() > 1 &&
+			videoPreviewArtworkImage.getHeight() > 1) {
+			videoPreviewWidth = static_cast<float>(videoPreviewArtworkImage.getWidth());
+			videoPreviewHeight = static_cast<float>(videoPreviewArtworkImage.getHeight());
+			ensureFboSize(videoPreviewFbo, videoPreviewWidth, videoPreviewHeight);
+			videoPreviewFbo.begin();
+			ofClear(0, 0, 0, 255);
+			videoPreviewArtworkImage.draw(0.0f, 0.0f, videoPreviewWidth, videoPreviewHeight);
+			videoPreviewFbo.end();
+			videoPreviewHasContent = true;
+		}
+		if (!videoPreviewHasContent && holdPreviewState && hadPreviewContent) {
+			videoPreviewHasContent = true;
+			videoPreviewShowsVideo = hadVideoPreview;
+		}
+	} else {
+		if (holdPreviewState && hadPreviewContent) {
+			videoPreviewHasContent = true;
+			videoPreviewShowsVideo = hadVideoPreview;
+		} else {
+			clearVideoPreviewState(
+				videoPreviewFbo,
+				videoPreviewArtworkImage,
+				videoPreviewArtworkPath,
+				videoPreviewWidth,
+				videoPreviewHeight);
 		}
 	}
+	// Only real video frames are pushed through the anaglyph pass.
+	// Cover art and empty placeholders stay on the normal preview path.
+	if (videoPreviewHasContent &&
+		videoPreviewShowsVideo &&
+		remoteGui.isAnaglyphEnabled() &&
+		player.getVideoStereoMode() == ofxVlc4Player::VideoStereoMode::SideBySide) {
+		updateAnaglyphPreview();
+	}
+	if (projectMInitialized &&
+		renderProjectMPreview &&
+		projectMTextureSourceMode == ProjectMTextureSourceMode::MainPlayerVideo) {
+		// projectM consumes a texture, so the player frame is copied into its dedicated source FBO here.
+		drawPlayerToFbo(
+			player,
+			projectMSourceFbo,
+			player.getWidth(),
+			player.getHeight(),
+			false);
+		}
 
 	remoteGui.updateSelection(player);
 
@@ -303,13 +508,34 @@ void ofApp::update() {
 //--------------------------------------------------------------
 void ofApp::draw() {
 	ofClear(0, 0, 0, 255);
+	const ofTexture emptyTexture;
+	const bool showActiveVideoPreview = videoPreviewHasContent && (!player.isStopped() || player.isPlaybackRestartPending());
+	// Display switches to the derived anaglyph texture only when the preview currently
+	// represents SBS video. All other states keep the standard preview texture.
+	const bool useAnaglyphPreview =
+		showActiveVideoPreview &&
+		videoPreviewShowsVideo &&
+		remoteGui.isAnaglyphEnabled() &&
+		player.getVideoStereoMode() == ofxVlc4Player::VideoStereoMode::SideBySide &&
+		anaglyphShaderReady &&
+		anaglyphPreviewFbo.isAllocated();
+	const ofTexture & videoPreviewTexture = useAnaglyphPreview
+		? anaglyphPreviewFbo.getTexture()
+		: (showActiveVideoPreview && videoPreviewFbo.isAllocated()
+			? videoPreviewFbo.getTexture()
+			: emptyTexture);
+	const float displayPreviewWidth = showActiveVideoPreview
+		? (useAnaglyphPreview ? std::max(1.0f, videoPreviewWidth * 0.5f) : videoPreviewWidth)
+		: 0.0f;
+	const float displayPreviewHeight = showActiveVideoPreview ? videoPreviewHeight : 0.0f;
+
 	remoteGui.draw(
 		player,
 		projectM,
 		projectMInitialized,
-		videoPreviewFbo.getTexture(),
-		videoPreviewWidth,
-		videoPreviewHeight,
+		videoPreviewTexture,
+		displayPreviewWidth,
+		displayPreviewHeight,
 		[this](const std::string & rawPath) {
 			return addPathToPlaylist(rawPath);
 		},
@@ -345,33 +571,25 @@ void ofApp::dragEvent(ofDragInfo dragInfo) {
 }
 
 //--------------------------------------------------------------
-void ofApp::keyPressed(int key) {
-	remoteGui.handleKeyPressed(key, player, projectM, projectMInitialized);
-}
-
-//--------------------------------------------------------------
 void ofApp::exit() {
 	player.close();
-	videoPlayer.close();
 	soundStream.close();
 }
 
 int ofApp::addPathToPlaylist(const std::string & rawPath) {
 	const std::string resolvedPath = resolveInputPath(rawPath);
 	if (resolvedPath.empty()) {
+		ofxVlc4Player::logWarning("Playlist path is empty.");
 		return 0;
 	}
 
 	if (!looksLikeUri(resolvedPath) && !pathExists(resolvedPath)) {
-		ofLogError("ofApp") << "Playlist path not found: " << normalizeInputPath(rawPath);
+		ofxVlc4Player::logWarning("Playlist path not found: " + normalizeInputPath(rawPath));
 		return 0;
 	}
 
-	return player.addPathToPlaylist(resolvedPath, kSeedExtensions);
-}
-
-void ofApp::ensureFboSize(ofFbo & fbo, int width, int height) {
-	ensureFboDimensions(fbo, width, height);
+	const int addedCount = player.addPathToPlaylist(resolvedPath, kSeedExtensions);
+	return addedCount;
 }
 
 void ofApp::drawPlayerToFbo(ofxVlc4Player & sourcePlayer, ofFbo & targetFbo, float width, float height, bool preserveAspect) {
@@ -380,8 +598,11 @@ void ofApp::drawPlayerToFbo(ofxVlc4Player & sourcePlayer, ofFbo & targetFbo, flo
 	}
 
 	targetFbo.begin();
-	ofClear(0, 0, 0, 0);
+	ofClear(0, 0, 0, 255);
 	if (width > 0.0f && height > 0.0f) {
+		ofPushStyle();
+		ofEnableBlendMode(OF_BLENDMODE_DISABLED);
+		ofSetColor(255, 255, 255, 255);
 		if (preserveAspect) {
 			const float targetWidth = targetFbo.getWidth();
 			const float targetHeight = targetFbo.getHeight();
@@ -405,30 +626,26 @@ void ofApp::drawPlayerToFbo(ofxVlc4Player & sourcePlayer, ofFbo & targetFbo, flo
 		} else {
 			sourcePlayer.draw(0.0f, 0.0f, targetFbo.getWidth(), targetFbo.getHeight());
 		}
+		ofPopStyle();
 	}
 	targetFbo.end();
 }
 
 void ofApp::refreshProjectMSourceTexture() {
-	if (!usesProjectMVideoSource(projectMTextureSourceMode)) {
+	if (projectMTextureSourceMode != ProjectMTextureSourceMode::MainPlayerVideo) {
 		return;
 	}
 
-	ofxVlc4Player * projectMSourcePlayer = getProjectMVideoSourcePlayer(projectMTextureSourceMode, player, videoPlayer);
-	if (!projectMSourcePlayer) {
-		clearAllocatedFbo(projectMSourceFbo);
-		return;
-	}
-
-	const float sourceWidth = projectMSourcePlayer->getWidth();
-	const float sourceHeight = projectMSourcePlayer->getHeight();
+	// Clear the source FBO when VLC has no valid frame so projectM shows a neutral texture instead of a stale frame.
+	const float sourceWidth = player.getWidth();
+	const float sourceHeight = player.getHeight();
 	if (sourceWidth <= 0.0f || sourceHeight <= 0.0f) {
 		clearAllocatedFbo(projectMSourceFbo);
 		return;
 	}
 
 	drawPlayerToFbo(
-		*projectMSourcePlayer,
+		player,
 		projectMSourceFbo,
 		sourceWidth,
 		sourceHeight,
@@ -436,14 +653,14 @@ void ofApp::refreshProjectMSourceTexture() {
 }
 
 void ofApp::applyProjectMTexture() {
-	syncHiddenProjectMVideoPlayer();
-
 	switch (projectMTextureSourceMode) {
 	case ProjectMTextureSourceMode::InternalTextures:
+		ofxProjectM::logNotice("Texture source: internal textures.");
 		projectM.useInternalTextureOnly();
 		projectM.resetTextures();
 		break;
 	case ProjectMTextureSourceMode::CustomImage:
+		ofxProjectM::logNotice("Texture source: image texture.");
 		if (projectMCustomTextureImage.isAllocated()) {
 			drawProjectMSourceImageToFbo(projectMSourceFbo, projectMCustomTextureImage);
 		}
@@ -451,8 +668,7 @@ void ofApp::applyProjectMTexture() {
 		projectM.resetTextures();
 		break;
 	case ProjectMTextureSourceMode::MainPlayerVideo:
-	case ProjectMTextureSourceMode::PlayerVideo:
-	case ProjectMTextureSourceMode::CustomVideo:
+		ofxProjectM::logNotice("Texture source: main player video.");
 		refreshProjectMSourceTexture();
 		projectM.setTexture(projectMSourceFbo.getTexture());
 		projectM.resetTextures();
@@ -460,40 +676,16 @@ void ofApp::applyProjectMTexture() {
 	}
 }
 
-void ofApp::syncHiddenProjectMVideoPlayer() {
-	const bool shouldUseHiddenVideoPlayer = usesHiddenProjectMVideoSource(projectMTextureSourceMode);
-
-	if (!shouldUseHiddenVideoPlayer) {
-		if (hiddenProjectMVideoSourceWasActive && !videoPlayer.isStopped()) {
-			videoPlayer.stop();
-		}
-		hiddenProjectMVideoSourceWasActive = false;
-		return;
-	}
-
-	hiddenProjectMVideoSourceWasActive = true;
-	if (!videoPlayer.getPlaylist().empty() && !videoPlayer.isPlaying()) {
-		const int currentIndex = videoPlayer.getCurrentIndex();
-		videoPlayer.playIndex(currentIndex >= 0 ? currentIndex : 0);
-	}
-}
-
 bool ofApp::hasProjectMSourceSize() const {
-	if (const ofxVlc4Player * sourcePlayer = getProjectMVideoSourcePlayer(projectMTextureSourceMode, player, videoPlayer)) {
-		return sourcePlayer->getWidth() > 0.0f && sourcePlayer->getHeight() > 0.0f;
-	}
-
 	switch (projectMTextureSourceMode) {
+	case ProjectMTextureSourceMode::MainPlayerVideo:
+		return player.getWidth() > 0.0f && player.getHeight() > 0.0f;
 	case ProjectMTextureSourceMode::CustomImage:
 		return projectMCustomTextureImage.isAllocated() &&
 			projectMCustomTextureImage.getWidth() > 0 &&
 			projectMCustomTextureImage.getHeight() > 0;
 	case ProjectMTextureSourceMode::InternalTextures:
 		return ofGetScreenWidth() > 0 && ofGetScreenHeight() > 0;
-	case ProjectMTextureSourceMode::MainPlayerVideo:
-	case ProjectMTextureSourceMode::PlayerVideo:
-	case ProjectMTextureSourceMode::CustomVideo:
-		break;
 	}
 
 	return false;
@@ -518,14 +710,14 @@ void ofApp::reloadProjectMTextures(bool useStandardTextures) {
 		return;
 	}
 
-	if (usesProjectMVideoSource(projectMTextureSourceMode)) {
+	if (projectMTextureSourceMode == ProjectMTextureSourceMode::MainPlayerVideo) {
 		applyProjectMTexture();
 		restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
 		return;
 	}
 
 	if (!ensureLoadedImage(projectMCustomTextureImage, projectMCustomTexturePath)) {
-		projectMTextureSourceMode = ProjectMTextureSourceMode::PlayerVideo;
+		projectMTextureSourceMode = ProjectMTextureSourceMode::InternalTextures;
 	}
 
 	applyProjectMTexture();
@@ -543,43 +735,27 @@ bool ofApp::loadCustomProjectMTexture(const std::string & rawPath) {
 	const std::string requestedPath = normalizedPath.empty() ? projectMCustomTexturePath : normalizedPath;
 	const std::string resolvedPath = resolveInputPath(requestedPath);
 	if (resolvedPath.empty()) {
-		ofLogError("ofApp") << "No custom projectM texture path set.";
+		ofxProjectM::logWarning("projectM image texture path is empty.");
 		return false;
 	}
 
 	if (!pathExists(resolvedPath)) {
-		ofLogError("ofApp") << "Custom projectM texture file not found: " << requestedPath;
+		ofxProjectM::logWarning("projectM image texture path not found: " + requestedPath);
 		return false;
 	}
 
 	if (isSupportedVideoPath(resolvedPath)) {
-		const HiddenVideoPlayerState previousVideoState = captureHiddenVideoPlayerState(videoPlayer);
-		videoPlayer.clearPlaylist();
-		const int addedCount = videoPlayer.addPathToPlaylist(resolvedPath, kSeedExtensions);
-		if (addedCount <= 0 || videoPlayer.getPlaylist().empty()) {
-			restoreHiddenVideoPlayerState(videoPlayer, previousVideoState);
-			ofLogError("ofApp") << "Failed to load custom projectM texture video: " << resolvedPath;
-			return false;
-		}
-		videoPlayer.setPlaybackMode(ofxVlc4Player::PlaybackMode::Repeat);
-		videoPlayer.playIndex(0);
-
-		projectMCustomTextureImage.clear();
-		projectMCustomTexturePath = resolvedPath;
-		projectMTextureSourceMode = ProjectMTextureSourceMode::CustomVideo;
-		applyProjectMTexture();
-		restartCurrentProjectMPresetIfInitialized(projectM, projectMInitialized);
-		return true;
+		ofxProjectM::logWarning("Only image textures allowed.");
+		return false;
 	}
 
 	if (!isSupportedImagePath(resolvedPath)) {
-		ofLogError("ofApp") << "Custom projectM texture must be an image or video file (.png, .jpg, .jpeg, .bmp, .mp4, .mov, .m4v, .webm, .avi, .mkv, .h264): " << requestedPath;
 		return false;
 	}
 
 	ofImage image;
 	if (!image.load(resolvedPath)) {
-		ofLogError("ofApp") << "Failed to load custom projectM texture image: " << resolvedPath;
+		ofxProjectM::logError("Failed to load custom projectM texture image: " + resolvedPath);
 		return false;
 	}
 
