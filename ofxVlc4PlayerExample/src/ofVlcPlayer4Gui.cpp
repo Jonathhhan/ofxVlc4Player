@@ -52,7 +52,7 @@ constexpr float kEqualizerAmpWriteEpsilon = 0.01f;
 constexpr std::array<float, 10> kEqualizerGuideFrequenciesHz = {
 	31.5f, 63.0f, 125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f
 };
-constexpr std::array<float, 5> kEqualizerDbMarkers = { 18.0f, 12.0f, 0.0f, -12.0f, -18.0f };
+constexpr std::array<float, 4> kEqualizerDbLabelMarkers = { 18.0f, 12.0f, -12.0f, -18.0f };
 constexpr std::array<AnalyzerDisplayStyle, 4> kAnalyzerDisplayStyles = {
 	AnalyzerDisplayStyle::Studio,
 	AnalyzerDisplayStyle::Mastering,
@@ -1356,20 +1356,13 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 			ImGui::GetColorU32(ImVec4(kUiFrame.x, kUiFrame.y, kUiFrame.z, 0.75f)));
 	}
 
-	const float zeroLineY = graphMin.y + graphHeight * 0.5f;
-	drawList->AddLine(
-		ImVec2(graphMin.x, zeroLineY),
-		ImVec2(graphMax.x, zeroLineY),
-		ImGui::GetColorU32(kUiAccentBright),
-		1.0f);
-
-	for (float dbMarker : kEqualizerDbMarkers) {
+	for (float dbMarker : kEqualizerDbLabelMarkers) {
 		const float y = graphMin.y + (graphHeight * ampToGraphYT(dbMarker));
 		char label[8];
 		std::snprintf(label, sizeof(label), dbMarker > 0.0f ? "+%.0f" : "%.0f", dbMarker);
 		drawList->AddText(
 			ImVec2(graphMin.x + 6.0f, y - ImGui::GetFontSize() * 0.5f),
-			ImGui::GetColorU32(std::abs(dbMarker) < 0.1f ? kUiAccentBright : kUiBorder),
+			ImGui::GetColorU32(kUiBorder),
 			label);
 	}
 
