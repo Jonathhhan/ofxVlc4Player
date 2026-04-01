@@ -6,6 +6,7 @@ const std::initializer_list<std::string> kSeedExtensions = {
 	".jpg", ".jpeg", ".png", ".mp3", ".wav", ".aiff", ".h264",
 	".flac", ".bmp"
 };
+constexpr float kMaxVideoPreviewHeight = 4320.0f;
 
 std::string normalizeInputPath(std::string path) {
 	path = ofTrim(path);
@@ -80,6 +81,26 @@ bool hasUsableTextureSize(const ofTexture & texture) {
 		texture.getHeight() > 1.0f;
 }
 
+void clampVideoPreviewDimensions(float & width, float & height) {
+	if (width <= 0.0f || height <= 0.0f || height <= kMaxVideoPreviewHeight) {
+		return;
+	}
+
+	const float scale = kMaxVideoPreviewHeight / height;
+	width = std::max(1.0f, width * scale);
+	height = kMaxVideoPreviewHeight;
+}
+
+void assignClampedPreviewDimensions(
+	float sourceWidth,
+	float sourceHeight,
+	float & targetWidth,
+	float & targetHeight) {
+	targetWidth = sourceWidth;
+	targetHeight = sourceHeight;
+	clampVideoPreviewDimensions(targetWidth, targetHeight);
+}
+
 bool shouldUseAdjustedVideoPreview(
 	bool previewHasContent,
 	bool previewShowsVideo,
@@ -132,11 +153,6 @@ std::string resolveArtworkPath(const std::string & rawArtworkUrl) {
 
 bool pathExists(const std::string & path) {
 	return ofFile::doesFileExist(path, true) || ofDirectory::doesDirectoryExist(path, true);
-}
-
-bool isSupportedImagePath(const std::string & path) {
-	const std::string extension = ofToLower(ofFilePath::getFileExt(path));
-	return extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "bmp";
 }
 
 bool isSupportedVideoPath(const std::string & path) {
@@ -483,6 +499,7 @@ void ofApp::updateVideoAdjustPreview(const ofTexture & sourceTexture, float sour
 		return;
 	}
 
+	clampVideoPreviewDimensions(sourceWidth, sourceHeight);
 	ensureFboSize(videoAdjustPreviewFbo, sourceWidth, sourceHeight);
 	videoAdjustPreviewFbo.begin();
 	ofClear(0, 0, 0, 0);
@@ -503,6 +520,7 @@ void ofApp::updateAnaglyphPreview(const ofTexture & sourceTexture, float sourceW
 		return;
 	}
 
+	clampVideoPreviewDimensions(sourceWidth, sourceHeight);
 	// Anaglyph combines the left and right halves of the SBS preview into a single output,
 	// so the preview width is halved while the original height stays untouched.
 	const float targetWidth = std::max(1.0f, sourceWidth * 0.5f);
@@ -548,7 +566,7 @@ void ofApp::setup() {
 	const char * vlc_argv[] = {
 		"--file-caching=10",
 		"--network-caching=10",
-		"--verbose=-1"
+		"--verbose=2"
 	};
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 
@@ -606,17 +624,16 @@ void ofApp::update() {
 	videoPreviewShowsVideo = false;
 	// Prefer VLC's reported display geometry, but fall back to the exposed texture once it is larger than 1x1.
 	if (playerHasReportedVideoSize) {
-		videoPreviewWidth = currentVideoWidth;
-		videoPreviewHeight = currentVideoHeight;
+		assignClampedPreviewDimensions(currentVideoWidth, currentVideoHeight, videoPreviewWidth, videoPreviewHeight);
 	} else if (playerHasTextureSize && videoPreviewWidth <= 1.0f && videoPreviewHeight <= 1.0f) {
-		videoPreviewWidth = playerTexture.getWidth();
-		videoPreviewHeight = playerTexture.getHeight();
+		assignClampedPreviewDimensions(playerTexture.getWidth(), playerTexture.getHeight(), videoPreviewWidth, videoPreviewHeight);
 	}
 	if (playerHasVideoFrame && previewSourceWidth > 1.0f && previewSourceHeight > 1.0f) {
-		ensureFboSize(videoPreviewFbo, previewSourceWidth, previewSourceHeight);
+		assignClampedPreviewDimensions(previewSourceWidth, previewSourceHeight, videoPreviewWidth, videoPreviewHeight);
+		ensureFboSize(videoPreviewFbo, videoPreviewWidth, videoPreviewHeight);
 		videoPreviewFbo.begin();
 		ofClear(0, 0, 0, 255);
-		player.draw(0.0f, 0.0f, previewSourceWidth, previewSourceHeight);
+		player.draw(0.0f, 0.0f, videoPreviewWidth, videoPreviewHeight);
 		videoPreviewFbo.end();
 		videoPreviewHasContent = true;
 		videoPreviewShowsVideo = true;
@@ -629,8 +646,11 @@ void ofApp::update() {
 			videoPreviewArtworkImage.isAllocated() &&
 			videoPreviewArtworkImage.getWidth() > 1 &&
 			videoPreviewArtworkImage.getHeight() > 1) {
-			videoPreviewWidth = static_cast<float>(videoPreviewArtworkImage.getWidth());
-			videoPreviewHeight = static_cast<float>(videoPreviewArtworkImage.getHeight());
+			assignClampedPreviewDimensions(
+				static_cast<float>(videoPreviewArtworkImage.getWidth()),
+				static_cast<float>(videoPreviewArtworkImage.getHeight()),
+				videoPreviewWidth,
+				videoPreviewHeight);
 			ensureFboSize(videoPreviewFbo, videoPreviewWidth, videoPreviewHeight);
 			videoPreviewFbo.begin();
 			ofClear(0, 0, 0, 255);
@@ -783,12 +803,13 @@ void ofApp::exit() {
 
 int ofApp::addPathToPlaylist(const std::string & rawPath) {
 	const std::string resolvedPath = resolveInputPath(rawPath);
+	const bool isLocalPath = !looksLikeUri(resolvedPath);
 	if (resolvedPath.empty()) {
 		ofxVlc4Player::logWarning("Playlist path is empty.");
 		return 0;
 	}
 
-	if (!looksLikeUri(resolvedPath) && !pathExists(resolvedPath)) {
+	if (isLocalPath && !pathExists(resolvedPath)) {
 		ofxVlc4Player::logWarning("Playlist path not found: " + normalizeInputPath(rawPath));
 		return 0;
 	}
