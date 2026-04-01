@@ -366,8 +366,9 @@ void ofApp::updateAnaglyphPreview(const ofTexture & sourceTexture, float sourceW
 
 //--------------------------------------------------------------
 void ofApp::setup() {
-	ofSetWindowTitle("VLC Playlist GUI");
+	ofSetWindowTitle("ofxVlc4Player");
 	ofSetFrameRate(60);
+	ofSetVerticalSync(true);
 	ofDisableArbTex();
 
 	ofSoundStreamSettings settings;
