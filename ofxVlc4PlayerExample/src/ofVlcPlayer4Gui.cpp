@@ -1,6 +1,7 @@
 #include "ofVlcPlayer4Gui.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
@@ -42,11 +43,109 @@ constexpr float kPreviewMaxWidth = 680.0f;
 constexpr float kDefaultPreviewAspect = 4.0f / 3.0f;
 constexpr float kRemoteWindowX = 20.0f;
 constexpr float kRemoteWindowY = 24.0f;
-constexpr int kVisibleEqualizerBands = 8;
+constexpr size_t kEqualizerSpectrumPointCount = 512;
+constexpr size_t kEqualizerResponseSampleCount = 256;
+constexpr int kAnalyzerBarCount = 72;
+constexpr float kAnalyzerPeakHoldSeconds = 0.32f;
+constexpr float kAnalyzerPeakReleasePerSecond = 1.10f;
+constexpr float kEqualizerAmpWriteEpsilon = 0.01f;
+constexpr std::array<float, 10> kEqualizerGuideFrequenciesHz = {
+	31.5f, 63.0f, 125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f
+};
+constexpr std::array<float, 5> kEqualizerDbMarkers = { 18.0f, 12.0f, 0.0f, -12.0f, -18.0f };
+constexpr std::array<AnalyzerDisplayStyle, 4> kAnalyzerDisplayStyles = {
+	AnalyzerDisplayStyle::Studio,
+	AnalyzerDisplayStyle::Mastering,
+	AnalyzerDisplayStyle::RtaBars,
+	AnalyzerDisplayStyle::Hybrid
+};
+constexpr std::array<EqualizerBandLayout, 7> kEqualizerBandLayouts = {
+	EqualizerBandLayout::Graphic30,
+	EqualizerBandLayout::Graphic16,
+	EqualizerBandLayout::Graphic10,
+	EqualizerBandLayout::Mix8,
+	EqualizerBandLayout::Broad6,
+	EqualizerBandLayout::Mastering5,
+	EqualizerBandLayout::Broad3
+};
+constexpr std::array<float, 30> kGraphic30BandTargetsHz = {
+	25.0f, 31.5f, 40.0f, 50.0f, 63.0f, 80.0f, 100.0f, 125.0f, 160.0f, 200.0f,
+	250.0f, 315.0f, 400.0f, 500.0f, 630.0f, 800.0f, 1000.0f, 1250.0f, 1600.0f, 2000.0f,
+	2500.0f, 3150.0f, 4000.0f, 5000.0f, 6300.0f, 8000.0f, 10000.0f, 12500.0f, 16000.0f, 20000.0f
+};
+constexpr std::array<float, 16> kGraphic16BandTargetsHz = {
+	25.0f, 40.0f, 63.0f, 100.0f, 160.0f, 250.0f, 400.0f, 630.0f,
+	1000.0f, 1600.0f, 2500.0f, 4000.0f, 6300.0f, 10000.0f, 16000.0f, 20000.0f
+};
+constexpr std::array<float, 10> kGraphic10BandTargetsHz = {
+	31.25f, 62.5f, 125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f
+};
+constexpr std::array<float, 8> kMix8BandTargetsHz = {
+	31.25f, 62.5f, 160.0f, 400.0f, 1000.0f, 2500.0f, 6300.0f, 16000.0f
+};
+constexpr std::array<float, 6> kBroad6BandTargetsHz = {
+	62.5f, 160.0f, 400.0f, 1000.0f, 3000.0f, 12000.0f
+};
+constexpr std::array<float, 5> kMastering5BandTargetsHz = {
+	80.0f, 250.0f, 1000.0f, 4000.0f, 12000.0f
+};
+constexpr std::array<float, 3> kBroad3BandTargetsHz = {
+	90.0f, 1000.0f, 11000.0f
+};
 
 struct PlaylistDragPayload {
 	int index = -1;
 };
+
+struct EqualizerBandHandle {
+	float targetFrequencyHz = 0.0f;
+	int lowerBandIndex = -1;
+	int upperBandIndex = -1;
+	float upperWeight = 0.0f;
+};
+
+struct EqualizerBandTargetView {
+	const float * data = nullptr;
+	size_t size = 0;
+};
+
+int findNearestPointIndex(const std::vector<ImVec2> & points, const ImVec2 & target) {
+	int nearestIndex = -1;
+	float nearestDistance = std::numeric_limits<float>::max();
+	for (int pointIndex = 0; pointIndex < static_cast<int>(points.size()); ++pointIndex) {
+		const float dx = target.x - points[pointIndex].x;
+		const float dy = target.y - points[pointIndex].y;
+		const float distance = std::sqrt((dx * dx) + (dy * dy));
+		if (distance < nearestDistance) {
+			nearestDistance = distance;
+			nearestIndex = pointIndex;
+		}
+	}
+
+	return nearestIndex;
+}
+
+std::vector<ImVec2> buildAnchoredPolyline(const std::vector<ImVec2> & points, float minX, float maxX) {
+	std::vector<ImVec2> linePoints;
+	linePoints.reserve(points.size() + 2);
+	if (points.empty()) {
+		return linePoints;
+	}
+
+	if (std::abs(points.front().x - minX) > 1.0f) {
+		linePoints.emplace_back(minX, points.front().y);
+	}
+	linePoints.insert(linePoints.end(), points.begin(), points.end());
+	if (std::abs(points.back().x - maxX) > 1.0f) {
+		linePoints.emplace_back(maxX, points.back().y);
+	}
+
+	if (linePoints.size() < 2) {
+		return points;
+	}
+
+	return linePoints;
+}
 
 void drawTexturePreview(
 	const ofTexture & texture,
@@ -61,28 +160,228 @@ void drawTexturePreview(
 float computePreviewWindowHeight(float sourceWidth, float sourceHeight, float windowWidth, float maxPreviewWidth);
 bool isValidPlaylistIndex(const std::vector<std::string> & playlist, int index);
 
-std::vector<int> buildVisibleEqualizerBandIndices(int bandCount) {
-	std::vector<int> visibleBandIndices;
-	if (bandCount <= 0) {
-		return visibleBandIndices;
+EqualizerBandTargetView equalizerBandLayoutTargets(EqualizerBandLayout layout) {
+	switch (layout) {
+	case EqualizerBandLayout::Graphic30:
+		return { kGraphic30BandTargetsHz.data(), kGraphic30BandTargetsHz.size() };
+	case EqualizerBandLayout::Graphic16:
+		return { kGraphic16BandTargetsHz.data(), kGraphic16BandTargetsHz.size() };
+	case EqualizerBandLayout::Mix8:
+		return { kMix8BandTargetsHz.data(), kMix8BandTargetsHz.size() };
+	case EqualizerBandLayout::Broad6:
+		return { kBroad6BandTargetsHz.data(), kBroad6BandTargetsHz.size() };
+	case EqualizerBandLayout::Mastering5:
+		return { kMastering5BandTargetsHz.data(), kMastering5BandTargetsHz.size() };
+	case EqualizerBandLayout::Broad3:
+		return { kBroad3BandTargetsHz.data(), kBroad3BandTargetsHz.size() };
+	case EqualizerBandLayout::Graphic10:
+	default:
+		return { kGraphic10BandTargetsHz.data(), kGraphic10BandTargetsHz.size() };
+	}
+}
+
+std::vector<EqualizerBandHandle> buildEqualizerBandHandles(const std::vector<float> & bandFrequencies, EqualizerBandLayout layout) {
+	std::vector<EqualizerBandHandle> handles;
+	if (bandFrequencies.empty()) {
+		return handles;
 	}
 
-	const int visibleBandCount = std::min(kVisibleEqualizerBands, bandCount);
-	visibleBandIndices.reserve(visibleBandCount);
-	if (visibleBandCount == 1) {
-		visibleBandIndices.push_back(0);
-		return visibleBandIndices;
-	}
+	const EqualizerBandTargetView targetFrequencies = equalizerBandLayoutTargets(layout);
+	handles.reserve(targetFrequencies.size);
+	for (size_t targetIndex = 0; targetIndex < targetFrequencies.size; ++targetIndex) {
+		const float targetFrequency = targetFrequencies.data[targetIndex];
+		const float clampedTarget = std::clamp(targetFrequency, bandFrequencies.front(), bandFrequencies.back());
+		EqualizerBandHandle handle {};
+		handle.targetFrequencyHz = clampedTarget;
 
-	for (int i = 0; i < visibleBandCount; ++i) {
-		const float t = static_cast<float>(i) / static_cast<float>(visibleBandCount - 1);
-		const int bandIndex = static_cast<int>(std::round(t * static_cast<float>(bandCount - 1)));
-		if (visibleBandIndices.empty() || visibleBandIndices.back() != bandIndex) {
-			visibleBandIndices.push_back(bandIndex);
+		if (clampedTarget <= bandFrequencies.front()) {
+			handle.lowerBandIndex = 0;
+			handle.upperBandIndex = 0;
+			handles.push_back(handle);
+			continue;
 		}
+		if (clampedTarget >= bandFrequencies.back()) {
+			const int lastBandIndex = static_cast<int>(bandFrequencies.size()) - 1;
+			handle.lowerBandIndex = lastBandIndex;
+			handle.upperBandIndex = lastBandIndex;
+			handles.push_back(handle);
+			continue;
+		}
+
+		for (int bandIndex = 1; bandIndex < static_cast<int>(bandFrequencies.size()); ++bandIndex) {
+			const float lowerFrequency = bandFrequencies[static_cast<size_t>(bandIndex - 1)];
+			const float upperFrequency = bandFrequencies[static_cast<size_t>(bandIndex)];
+			if (clampedTarget > upperFrequency) {
+				continue;
+			}
+
+			handle.lowerBandIndex = bandIndex - 1;
+			handle.upperBandIndex = bandIndex;
+			if (upperFrequency > lowerFrequency && lowerFrequency > 0.0f) {
+				const float logLower = std::log(lowerFrequency);
+				const float logUpper = std::log(upperFrequency);
+				const float logTarget = std::log(clampedTarget);
+				handle.upperWeight = std::clamp((logTarget - logLower) / (logUpper - logLower), 0.0f, 1.0f);
+			}
+			break;
+		}
+
+		if (handle.lowerBandIndex < 0) {
+			handle.lowerBandIndex = 0;
+			handle.upperBandIndex = 0;
+		}
+		handles.push_back(handle);
 	}
 
-	return visibleBandIndices;
+	return handles;
+}
+
+float getEqualizerHandleAmp(ofxVlc4Player & player, const EqualizerBandHandle & handle) {
+	if (handle.lowerBandIndex < 0) {
+		return 0.0f;
+	}
+	if (handle.lowerBandIndex == handle.upperBandIndex) {
+		return player.getEqualizerBandAmp(handle.lowerBandIndex);
+	}
+
+	const float lowerAmp = player.getEqualizerBandAmp(handle.lowerBandIndex);
+	const float upperAmp = player.getEqualizerBandAmp(handle.upperBandIndex);
+	return ofLerp(lowerAmp, upperAmp, handle.upperWeight);
+}
+
+float getEqualizerHandleAmp(const std::vector<float> & bandAmps, const EqualizerBandHandle & handle) {
+	if (handle.lowerBandIndex < 0 || handle.lowerBandIndex >= static_cast<int>(bandAmps.size())) {
+		return 0.0f;
+	}
+	if (handle.lowerBandIndex == handle.upperBandIndex || handle.upperBandIndex < 0 ||
+		handle.upperBandIndex >= static_cast<int>(bandAmps.size())) {
+		return bandAmps[static_cast<size_t>(handle.lowerBandIndex)];
+	}
+
+	return ofLerp(
+		bandAmps[static_cast<size_t>(handle.lowerBandIndex)],
+		bandAmps[static_cast<size_t>(handle.upperBandIndex)],
+		handle.upperWeight);
+}
+
+std::vector<float> buildEqualizerDisplayCurve(
+	const std::vector<float> & bandFrequencies,
+	const std::vector<float> & bandAmps,
+	size_t sampleCount,
+	float minFrequency,
+	float maxFrequency) {
+	std::vector<float> curve(sampleCount, 0.0f);
+	if (sampleCount == 0 || bandFrequencies.empty() || bandFrequencies.size() != bandAmps.size()) {
+		return curve;
+	}
+
+	std::vector<float> logFrequencies(bandFrequencies.size(), 0.0f);
+	for (size_t i = 0; i < bandFrequencies.size(); ++i) {
+		logFrequencies[i] = std::log(std::max(bandFrequencies[i], 1.0f));
+	}
+
+	const float logMinFrequency = std::log(std::max(minFrequency, 1.0f));
+	const float logMaxFrequency = std::log(std::max(maxFrequency, minFrequency + 1.0f));
+	const size_t lastBandIndex = bandFrequencies.size() - 1;
+	for (size_t sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
+		const float t = sampleCount <= 1
+			? 0.0f
+			: static_cast<float>(sampleIndex) / static_cast<float>(sampleCount - 1);
+		const float logTarget = ofLerp(logMinFrequency, logMaxFrequency, t);
+
+		float weightedGain = 0.0f;
+		float totalWeight = 0.0f;
+		for (size_t bandIndex = 0; bandIndex < bandFrequencies.size(); ++bandIndex) {
+			const float leftSpan = bandIndex > 0
+				? (logFrequencies[bandIndex] - logFrequencies[bandIndex - 1])
+				: ((bandFrequencies.size() > 1) ? (logFrequencies[1] - logFrequencies[0]) : 0.45f);
+			const float rightSpan = bandIndex < lastBandIndex
+				? (logFrequencies[bandIndex + 1] - logFrequencies[bandIndex])
+				: ((bandFrequencies.size() > 1) ? (logFrequencies[lastBandIndex] - logFrequencies[lastBandIndex - 1]) : 0.45f);
+			const float sigma = std::max(0.18f, 0.85f * 0.5f * (leftSpan + rightSpan));
+
+			float distance = std::abs(logTarget - logFrequencies[bandIndex]);
+			if (bandIndex == 0 && logTarget < logFrequencies[bandIndex]) {
+				distance *= 0.38f;
+			} else if (bandIndex == lastBandIndex && logTarget > logFrequencies[bandIndex]) {
+				distance *= 0.38f;
+			}
+
+			const float normalized = distance / sigma;
+			const float weight = std::exp(-0.5f * normalized * normalized);
+			weightedGain += bandAmps[bandIndex] * weight;
+			totalWeight += weight;
+		}
+
+		curve[sampleIndex] = totalWeight > 0.0f ? (weightedGain / totalWeight) : 0.0f;
+	}
+
+	return curve;
+}
+
+void setEqualizerHandleAmp(ofxVlc4Player & player, const EqualizerBandHandle & handle, float targetAmp) {
+	const float clampedTarget = ofClamp(targetAmp, -20.0f, 20.0f);
+	if (handle.lowerBandIndex < 0) {
+		return;
+	}
+	if (handle.lowerBandIndex == handle.upperBandIndex) {
+		const float currentAmp = player.getEqualizerBandAmp(handle.lowerBandIndex);
+		if (std::abs(currentAmp - clampedTarget) > kEqualizerAmpWriteEpsilon) {
+			player.setEqualizerBandAmp(handle.lowerBandIndex, clampedTarget);
+		}
+		return;
+	}
+
+	const float currentLowerAmp = player.getEqualizerBandAmp(handle.lowerBandIndex);
+	const float currentUpperAmp = player.getEqualizerBandAmp(handle.upperBandIndex);
+	const float lowerWeight = 1.0f - handle.upperWeight;
+	const float upperWeight = handle.upperWeight;
+	const float currentAmp = ofLerp(currentLowerAmp, currentUpperAmp, handle.upperWeight);
+	const float delta = clampedTarget - currentAmp;
+	const float weightEnergy = std::max((lowerWeight * lowerWeight) + (upperWeight * upperWeight), 1.0e-6f);
+
+	const float lowerAmp = currentLowerAmp + (delta * lowerWeight / weightEnergy);
+	const float upperAmp = currentUpperAmp + (delta * upperWeight / weightEnergy);
+	if (std::abs(lowerAmp - currentLowerAmp) > kEqualizerAmpWriteEpsilon) {
+		player.setEqualizerBandAmp(handle.lowerBandIndex, lowerAmp);
+	}
+	if (std::abs(upperAmp - currentUpperAmp) > kEqualizerAmpWriteEpsilon) {
+		player.setEqualizerBandAmp(handle.upperBandIndex, upperAmp);
+	}
+}
+
+const char * analyzerDisplayStyleLabel(AnalyzerDisplayStyle style) {
+	switch (style) {
+	case AnalyzerDisplayStyle::Mastering:
+		return "Mastering";
+	case AnalyzerDisplayStyle::RtaBars:
+		return "RTA Bars";
+	case AnalyzerDisplayStyle::Hybrid:
+		return "Hybrid";
+	case AnalyzerDisplayStyle::Studio:
+	default:
+		return "Studio";
+	}
+}
+
+const char * equalizerBandLayoutLabel(EqualizerBandLayout layout) {
+	switch (layout) {
+	case EqualizerBandLayout::Graphic30:
+		return "Graphic 30-Band";
+	case EqualizerBandLayout::Graphic16:
+		return "Graphic 16-Band";
+	case EqualizerBandLayout::Mix8:
+		return "Mix 8-Band";
+	case EqualizerBandLayout::Broad6:
+		return "Broad 6-Band";
+	case EqualizerBandLayout::Mastering5:
+		return "Mastering 5-Band";
+	case EqualizerBandLayout::Broad3:
+		return "Broad 3-Band";
+	case EqualizerBandLayout::Graphic10:
+	default:
+		return "Graphic 10-Band";
+	}
 }
 
 std::string buildTimeText(ofxVlc4Player & player, bool showRemainingTime) {
@@ -283,7 +582,7 @@ bool applyHoveredWheelStep(int & value, int minValue, int maxValue) {
 		return false;
 	}
 
-	const int direction = (wheel > 0.0f) ? 1 : -1;
+	const int direction = (wheel < 0.0f) ? 1 : -1;
 	const int newValue = ofClamp(value + direction, minValue, maxValue);
 	if (newValue == value) {
 		return false;
@@ -929,27 +1228,28 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, kLabelInnerSpacing);
 	ImGui::PushItemWidth(220.0f);
 
-	const int presetCount = player.getEqualizerPresetCount();
-	std::string presetPreview = "Custom";
-	int presetIndex = player.getEqualizerPresetIndex();
-	if (presetIndex >= 0) {
-		const std::string presetName = player.getEqualizerPresetName(presetIndex);
-		if (!presetName.empty()) {
-			presetPreview = presetName;
-		}
+	const int bandCount = player.getEqualizerBandCount();
+	if (bandCount <= 0) {
+		ImGui::PopItemWidth();
+		ImGui::PopStyleVar();
+		return;
 	}
 
-	if (ImGui::BeginCombo("Preset", presetPreview.c_str())) {
-		const bool customSelected = (presetIndex < 0);
-		if (ImGui::Selectable("Custom", customSelected)) {
-			player.resetEqualizer();
-		}
+	std::vector<float> bandFrequencies;
+	std::vector<float> bandAmps;
+	bandFrequencies.reserve(static_cast<size_t>(bandCount));
+	bandAmps.reserve(static_cast<size_t>(bandCount));
+	for (int bandIndex = 0; bandIndex < bandCount; ++bandIndex) {
+		bandFrequencies.push_back(player.getEqualizerBandFrequency(bandIndex));
+		bandAmps.push_back(player.getEqualizerBandAmp(bandIndex));
+	}
 
-		for (int i = 0; i < presetCount; ++i) {
-			const std::string presetName = player.getEqualizerPresetName(i);
-			const bool selected = (presetIndex == i);
-			if (ImGui::Selectable(presetName.c_str(), selected)) {
-				player.applyEqualizerPreset(i);
+	ImGui::SetNextItemWidth(220.0f);
+	if (ImGui::BeginCombo("Bands", equalizerBandLayoutLabel(equalizerBandLayout))) {
+		for (EqualizerBandLayout layout : kEqualizerBandLayouts) {
+			const bool selected = (equalizerBandLayout == layout);
+			if (ImGui::Selectable(equalizerBandLayoutLabel(layout), selected)) {
+				equalizerBandLayout = layout;
 			}
 			if (selected) {
 				ImGui::SetItemDefaultFocus();
@@ -957,39 +1257,48 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 		}
 		ImGui::EndCombo();
 	}
-
-	int wheelPresetIndex = presetIndex;
-	if (applyHoveredWheelStep(wheelPresetIndex, -1, presetCount - 1)) {
-		if (wheelPresetIndex < 0) {
-			player.resetEqualizer();
-		} else {
-			player.applyEqualizerPreset(wheelPresetIndex);
-		}
-		presetIndex = player.getEqualizerPresetIndex();
+	int bandLayoutIndex = static_cast<int>(equalizerBandLayout);
+	if (applyHoveredWheelStep(bandLayoutIndex, 0, static_cast<int>(kEqualizerBandLayouts.size()) - 1)) {
+		equalizerBandLayout = kEqualizerBandLayouts[static_cast<size_t>(bandLayoutIndex)];
 	}
 
-	const int bandCount = player.getEqualizerBandCount();
-	if (bandCount <= 0) {
+	const std::vector<EqualizerBandHandle> visibleBandHandles = buildEqualizerBandHandles(bandFrequencies, equalizerBandLayout);
+	if (visibleBandHandles.empty()) {
+		ImGui::PopItemWidth();
+		ImGui::PopStyleVar();
 		return;
 	}
 
-	const std::vector<int> visibleBandIndices = buildVisibleEqualizerBandIndices(bandCount);
-
-	if (ImGui::Button("Flat", ImVec2(kActionButtonWidth, 0.0f))) {
-		player.resetEqualizer();
-		equalizerControlYs.assign(visibleBandIndices.size(), 0.5f);
-		lastEqualizerPresetIndex = player.getEqualizerPresetIndex();
+	float preamp = player.getEqualizerPreamp();
+	ImGui::SetNextItemWidth(220.0f);
+	if (ImGui::SliderFloat("Preamp", &preamp, -20.0f, 20.0f, "%.1f dB")) {
+		player.setEqualizerPreamp(preamp);
+	}
+	if (applyHoveredWheelStep(preamp, -20.0f, 20.0f, 0.5f)) {
+		player.setEqualizerPreamp(preamp);
 	}
 
-	if (equalizerControlYs.size() != visibleBandIndices.size() ||
-		lastEqualizerPresetIndex != player.getEqualizerPresetIndex()) {
-		equalizerControlYs.resize(visibleBandIndices.size());
-		for (int i = 0; i < static_cast<int>(visibleBandIndices.size()); ++i) {
-			const float amp = player.getEqualizerBandAmp(visibleBandIndices[i]);
-			equalizerControlYs[i] = 1.0f - ((amp - (-20.0f)) / 40.0f);
-			equalizerControlYs[i] = std::clamp(equalizerControlYs[i], 0.0f, 1.0f);
+	if (ImGui::Button("Reset", ImVec2(kActionButtonWidth, 0.0f))) {
+		player.resetEqualizer();
+	}
+
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(160.0f);
+	if (ImGui::BeginCombo("Analyzer", analyzerDisplayStyleLabel(analyzerDisplayStyle))) {
+		for (AnalyzerDisplayStyle style : kAnalyzerDisplayStyles) {
+			const bool selected = (analyzerDisplayStyle == style);
+			if (ImGui::Selectable(analyzerDisplayStyleLabel(style), selected)) {
+				analyzerDisplayStyle = style;
+			}
+			if (selected) {
+				ImGui::SetItemDefaultFocus();
+			}
 		}
-		lastEqualizerPresetIndex = player.getEqualizerPresetIndex();
+		ImGui::EndCombo();
+	}
+	int analyzerStyleIndex = static_cast<int>(analyzerDisplayStyle);
+	if (applyHoveredWheelStep(analyzerStyleIndex, 0, static_cast<int>(kAnalyzerDisplayStyles.size()) - 1)) {
+		analyzerDisplayStyle = kAnalyzerDisplayStyles[static_cast<size_t>(analyzerStyleIndex)];
 	}
 
 	const ImVec2 graphSize(ImGui::GetContentRegionAvail().x, 170.0f);
@@ -1003,7 +1312,25 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 	const float graphHeight = std::max(1.0f, graphSize.y);
 	const float minDb = -20.0f;
 	const float maxDb = 20.0f;
-	const float frequencyLabelY = graphMax.y - ImGui::GetFontSize() - 4.0f;
+	const std::vector<float> spectrumLevels = player.getEqualizerSpectrumLevels(kEqualizerSpectrumPointCount);
+	const float minEqFrequency = std::max(bandFrequencies.front(), 20.0f);
+	const float maxEqFrequency = std::max(
+		bandFrequencies.back(),
+		minEqFrequency * 2.0f);
+	const auto frequencyToGraphXT = [&](float frequencyHz) {
+		const float clampedFrequency = std::clamp(frequencyHz, minEqFrequency, maxEqFrequency);
+		if (maxEqFrequency <= minEqFrequency) {
+			return 0.5f;
+		}
+
+		return std::clamp(
+			std::log(clampedFrequency / minEqFrequency) / std::log(maxEqFrequency / minEqFrequency),
+			0.0f,
+			1.0f);
+	};
+	const auto ampToGraphYT = [&](float amp) {
+		return std::clamp(1.0f - ((amp - minDb) / (maxDb - minDb)), 0.0f, 1.0f);
+	};
 
 	drawList->AddRectFilled(graphMin, graphMax, ImGui::GetColorU32(kUiChildBg));
 	drawList->AddRect(graphMin, graphMax, ImGui::GetColorU32(kUiBorder), 0.0f, 0, 1.0f);
@@ -1017,6 +1344,18 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 			ImGui::GetColorU32(kUiFrame));
 	}
 
+	for (float guideFrequencyHz : kEqualizerGuideFrequenciesHz) {
+		if (guideFrequencyHz <= minEqFrequency || guideFrequencyHz >= maxEqFrequency) {
+			continue;
+		}
+
+		const float x = graphMin.x + (graphWidth * frequencyToGraphXT(guideFrequencyHz));
+		drawList->AddLine(
+			ImVec2(x, graphMin.y),
+			ImVec2(x, graphMax.y),
+			ImGui::GetColorU32(ImVec4(kUiFrame.x, kUiFrame.y, kUiFrame.z, 0.75f)));
+	}
+
 	const float zeroLineY = graphMin.y + graphHeight * 0.5f;
 	drawList->AddLine(
 		ImVec2(graphMin.x, zeroLineY),
@@ -1024,56 +1363,251 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 		ImGui::GetColorU32(kUiAccentBright),
 		1.0f);
 
-	std::vector<ImVec2> points;
-	points.reserve(visibleBandIndices.size());
-	for (int i = 0; i < static_cast<int>(visibleBandIndices.size()); ++i) {
-		const float xT = visibleBandIndices.size() <= 1
+	for (float dbMarker : kEqualizerDbMarkers) {
+		const float y = graphMin.y + (graphHeight * ampToGraphYT(dbMarker));
+		char label[8];
+		std::snprintf(label, sizeof(label), dbMarker > 0.0f ? "+%.0f" : "%.0f", dbMarker);
+		drawList->AddText(
+			ImVec2(graphMin.x + 6.0f, y - ImGui::GetFontSize() * 0.5f),
+			ImGui::GetColorU32(std::abs(dbMarker) < 0.1f ? kUiAccentBright : kUiBorder),
+			label);
+	}
+
+	std::vector<ImVec2> spectrumPoints;
+	spectrumPoints.reserve(spectrumLevels.size());
+	for (int i = 0; i < static_cast<int>(spectrumLevels.size()); ++i) {
+		const float xT = spectrumLevels.size() <= 1
 			? 0.5f
-			: static_cast<float>(i) / static_cast<float>(visibleBandIndices.size() - 1);
-		const float yT = std::clamp(equalizerControlYs[i], 0.0f, 1.0f);
+			: static_cast<float>(i) / static_cast<float>(spectrumLevels.size() - 1);
+		const float level = std::clamp(spectrumLevels[static_cast<size_t>(i)], 0.0f, 1.0f);
+
+		spectrumPoints.emplace_back(
+			graphMin.x + graphWidth * xT,
+			graphMax.y - graphHeight * level);
+	}
+
+	const float nowSeconds = static_cast<float>(ImGui::GetTime());
+	float deltaSeconds = 1.0f / 60.0f;
+	if (lastAnalyzerPeakUpdateTime > 0.0) {
+		deltaSeconds = std::clamp(static_cast<float>(nowSeconds - lastAnalyzerPeakUpdateTime), 1.0f / 240.0f, 0.25f);
+	}
+	lastAnalyzerPeakUpdateTime = nowSeconds;
+
+	if (analyzerPeakHoldLevels.size() != spectrumLevels.size() ||
+		analyzerPeakHoldTimers.size() != spectrumLevels.size()) {
+		analyzerPeakHoldLevels = spectrumLevels;
+		analyzerPeakHoldTimers.assign(spectrumLevels.size(), kAnalyzerPeakHoldSeconds);
+	} else {
+		for (size_t i = 0; i < spectrumLevels.size(); ++i) {
+			if (spectrumLevels[i] >= analyzerPeakHoldLevels[i]) {
+				analyzerPeakHoldLevels[i] = spectrumLevels[i];
+				analyzerPeakHoldTimers[i] = kAnalyzerPeakHoldSeconds;
+			} else if (analyzerPeakHoldTimers[i] > 0.0f) {
+				analyzerPeakHoldTimers[i] = std::max(0.0f, analyzerPeakHoldTimers[i] - deltaSeconds);
+			} else {
+				analyzerPeakHoldLevels[i] = std::max(
+					spectrumLevels[i],
+					analyzerPeakHoldLevels[i] - (kAnalyzerPeakReleasePerSecond * deltaSeconds));
+			}
+		}
+	}
+
+	std::vector<ImVec2> peakHoldPoints;
+	peakHoldPoints.reserve(analyzerPeakHoldLevels.size());
+	for (int i = 0; i < static_cast<int>(analyzerPeakHoldLevels.size()); ++i) {
+		const float xT = analyzerPeakHoldLevels.size() <= 1
+			? 0.5f
+			: static_cast<float>(i) / static_cast<float>(analyzerPeakHoldLevels.size() - 1);
+		const float level = std::clamp(analyzerPeakHoldLevels[static_cast<size_t>(i)], 0.0f, 1.0f);
+		peakHoldPoints.emplace_back(
+			graphMin.x + graphWidth * xT,
+			graphMax.y - graphHeight * level);
+	}
+
+	if (spectrumPoints.size() >= 2) {
+		const ImVec4 spectrumFillColor(kUiAccent.x, kUiAccent.y, kUiAccent.z, 0.12f);
+		const ImVec4 spectrumLineColor(kUiAccentBright.x, kUiAccentBright.y, kUiAccentBright.z, 0.32f);
+		const ImVec4 peakHoldColor(0.92f, 0.82f, 0.38f, 0.92f);
+		const auto drawSpectrumLine = [&]() {
+			drawList->AddPolyline(
+				spectrumPoints.data(),
+				static_cast<int>(spectrumPoints.size()),
+				ImGui::GetColorU32(spectrumLineColor),
+				ImDrawFlags_None,
+				1.5f);
+		};
+		const auto drawSpectrumFill = [&]() {
+			for (size_t i = 1; i < spectrumPoints.size(); ++i) {
+				const ImVec2 & left = spectrumPoints[i - 1];
+				const ImVec2 & right = spectrumPoints[i];
+				drawList->AddQuadFilled(
+					ImVec2(left.x, graphMax.y),
+					left,
+					right,
+					ImVec2(right.x, graphMax.y),
+					ImGui::GetColorU32(spectrumFillColor));
+			}
+		};
+		const auto drawPeakHoldLine = [&]() {
+			if (peakHoldPoints.size() < 2) {
+				return;
+			}
+
+			drawList->AddPolyline(
+				peakHoldPoints.data(),
+				static_cast<int>(peakHoldPoints.size()),
+				ImGui::GetColorU32(peakHoldColor),
+				ImDrawFlags_None,
+				1.0f);
+		};
+		const auto drawSpectrumBars = [&](bool drawBarPeakHold) {
+			const int barCount = std::min(kAnalyzerBarCount, static_cast<int>(spectrumLevels.size()));
+			if (barCount <= 0) {
+				return;
+			}
+
+			const float step = static_cast<float>(spectrumLevels.size()) / static_cast<float>(barCount);
+			const float gap = 1.0f;
+			for (int barIndex = 0; barIndex < barCount; ++barIndex) {
+				const int start = static_cast<int>(std::floor(step * static_cast<float>(barIndex)));
+				const int end = std::min(
+					static_cast<int>(spectrumLevels.size()),
+					static_cast<int>(std::floor(step * static_cast<float>(barIndex + 1))));
+				if (end <= start) {
+					continue;
+				}
+
+				float peakLevel = 0.0f;
+				for (int sampleIndex = start; sampleIndex < end; ++sampleIndex) {
+					peakLevel = std::max(peakLevel, spectrumLevels[static_cast<size_t>(sampleIndex)]);
+				}
+
+				const float x0 = graphMin.x + (graphWidth * static_cast<float>(barIndex) / static_cast<float>(barCount));
+				const float x1 = graphMin.x + (graphWidth * static_cast<float>(barIndex + 1) / static_cast<float>(barCount));
+				const float topY = graphMax.y - (graphHeight * std::clamp(peakLevel, 0.0f, 1.0f));
+				drawList->AddRectFilled(
+					ImVec2(x0 + gap, topY),
+					ImVec2(std::max(x0 + gap, x1 - gap), graphMax.y),
+					ImGui::GetColorU32(spectrumFillColor));
+
+				if (drawBarPeakHold && barIndex < static_cast<int>(analyzerPeakHoldLevels.size())) {
+					const int peakSample = std::min(
+						static_cast<int>(analyzerPeakHoldLevels.size()) - 1,
+						static_cast<int>(std::round((static_cast<float>(barIndex) / static_cast<float>(std::max(barCount - 1, 1))) *
+							static_cast<float>(analyzerPeakHoldLevels.size() - 1))));
+					const float peakLevel = std::clamp(analyzerPeakHoldLevels[static_cast<size_t>(peakSample)], 0.0f, 1.0f);
+					const float peakY = graphMax.y - (graphHeight * peakLevel);
+					drawList->AddLine(
+						ImVec2(x0 + gap, peakY),
+						ImVec2(std::max(x0 + gap, x1 - gap), peakY),
+						ImGui::GetColorU32(peakHoldColor),
+						1.0f);
+				}
+			}
+		};
+
+		switch (analyzerDisplayStyle) {
+		case AnalyzerDisplayStyle::Mastering:
+			drawSpectrumLine();
+			drawPeakHoldLine();
+			break;
+		case AnalyzerDisplayStyle::RtaBars:
+			drawSpectrumBars(true);
+			break;
+		case AnalyzerDisplayStyle::Hybrid:
+			drawSpectrumBars(false);
+			drawSpectrumLine();
+			drawPeakHoldLine();
+			break;
+		case AnalyzerDisplayStyle::Studio:
+		default:
+			drawSpectrumFill();
+			drawSpectrumLine();
+			break;
+		}
+	}
+
+	std::vector<float> displayCurve = buildEqualizerDisplayCurve(
+		bandFrequencies,
+		bandAmps,
+		kEqualizerResponseSampleCount,
+		minEqFrequency,
+		maxEqFrequency);
+	std::vector<float> handleAmps(visibleBandHandles.size(), 0.0f);
+	for (size_t i = 0; i < visibleBandHandles.size(); ++i) {
+		handleAmps[i] = getEqualizerHandleAmp(bandAmps, visibleBandHandles[i]);
+	}
+
+	std::vector<ImVec2> points;
+	points.reserve(visibleBandHandles.size());
+	for (int i = 0; i < static_cast<int>(visibleBandHandles.size()); ++i) {
+		const float xT = frequencyToGraphXT(visibleBandHandles[static_cast<size_t>(i)].targetFrequencyHz);
+		const float yT = ampToGraphYT(handleAmps[static_cast<size_t>(i)]);
 		points.emplace_back(
 			graphMin.x + graphWidth * xT,
 			graphMin.y + graphHeight * yT);
 	}
 
-	if (points.size() >= 2) {
+	std::vector<ImVec2> curvePoints;
+	curvePoints.reserve(displayCurve.size());
+	for (size_t sampleIndex = 0; sampleIndex < displayCurve.size(); ++sampleIndex) {
+		const float t = displayCurve.size() <= 1
+			? 0.0f
+			: static_cast<float>(sampleIndex) / static_cast<float>(displayCurve.size() - 1);
+		curvePoints.emplace_back(
+			graphMin.x + (graphWidth * t),
+			graphMin.y + (graphHeight * ampToGraphYT(displayCurve[sampleIndex])));
+	}
+	if (curvePoints.size() < 2) {
+		curvePoints = points;
+	}
+
+	const std::vector<ImVec2> handleLinePoints = buildAnchoredPolyline(points, graphMin.x, graphMax.x);
+
+	if (curvePoints.size() >= 2) {
 		drawList->AddPolyline(
-			points.data(),
-			static_cast<int>(points.size()),
+			curvePoints.data(),
+			static_cast<int>(curvePoints.size()),
 			ImGui::GetColorU32(kUiAccent),
 			ImDrawFlags_None,
 			2.0f);
 	}
+	if (handleLinePoints.size() >= 2) {
+		drawList->AddPolyline(
+			handleLinePoints.data(),
+			static_cast<int>(handleLinePoints.size()),
+			ImGui::GetColorU32(ImVec4(kUiAccentBright.x, kUiAccentBright.y, kUiAccentBright.z, 0.55f)),
+			ImDrawFlags_None,
+			1.0f);
+	}
 
 	static int activeEqualizerBand = -1;
+	static bool skipDragUntilMouseRelease = false;
 	const bool hovered = ImGui::IsItemHovered();
 	const bool active = ImGui::IsItemActive();
 
 	if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-		const ImVec2 mousePos = ImGui::GetIO().MousePos;
-		float bestDistance = std::numeric_limits<float>::max();
-		activeEqualizerBand = -1;
-		for (int i = 0; i < static_cast<int>(points.size()); ++i) {
-			const float dx = mousePos.x - points[i].x;
-			const float dy = mousePos.y - points[i].y;
-			const float distance = std::sqrt(dx * dx + dy * dy);
-			if (distance < bestDistance) {
-				bestDistance = distance;
-				activeEqualizerBand = i;
-			}
+		skipDragUntilMouseRelease = false;
+		activeEqualizerBand = findNearestPointIndex(points, ImGui::GetIO().MousePos);
+	}
+	if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+		const int resetBand = findNearestPointIndex(points, ImGui::GetIO().MousePos);
+		if (resetBand >= 0) {
+			setEqualizerHandleAmp(player, visibleBandHandles[static_cast<size_t>(resetBand)], 0.0f);
+			activeEqualizerBand = resetBand;
+			skipDragUntilMouseRelease = true;
 		}
 	}
 
-	if (active && activeEqualizerBand >= 0 && activeEqualizerBand < static_cast<int>(visibleBandIndices.size())) {
+	if (active && !skipDragUntilMouseRelease &&
+		activeEqualizerBand >= 0 && activeEqualizerBand < static_cast<int>(visibleBandHandles.size())) {
 		const float mouseXT = std::clamp((ImGui::GetIO().MousePos.x - graphMin.x) / graphWidth, 0.0f, 1.0f);
 		const float mouseY = std::clamp(ImGui::GetIO().MousePos.y, graphMin.y, graphMax.y);
 		const float mouseYT = std::clamp((mouseY - graphMin.y) / graphHeight, 0.0f, 1.0f);
 		int nearestBand = 0;
 		float nearestDistance = std::numeric_limits<float>::max();
 		for (int i = 0; i < static_cast<int>(points.size()); ++i) {
-			const float pointXT = visibleBandIndices.size() <= 1
-				? 0.5f
-				: static_cast<float>(i) / static_cast<float>(visibleBandIndices.size() - 1);
+			const float pointXT = frequencyToGraphXT(visibleBandHandles[static_cast<size_t>(i)].targetFrequencyHz);
 			const float distance = std::abs(mouseXT - pointXT);
 			if (distance < nearestDistance) {
 				nearestDistance = distance;
@@ -1082,57 +1616,49 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 		}
 
 		activeEqualizerBand = nearestBand;
-		equalizerControlYs[activeEqualizerBand] = mouseYT;
 		const float amp = ofMap(mouseYT, 1.0f, 0.0f, minDb, maxDb, true);
-		player.setEqualizerBandAmp(visibleBandIndices[activeEqualizerBand], amp);
+		setEqualizerHandleAmp(player, visibleBandHandles[static_cast<size_t>(activeEqualizerBand)], amp);
 	}
 
 	if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 		activeEqualizerBand = -1;
+		skipDragUntilMouseRelease = false;
 	}
 
 	int hoveredBand = -1;
 	if (hovered) {
-		const ImVec2 mousePos = ImGui::GetIO().MousePos;
-		float bestDistance = std::numeric_limits<float>::max();
-		for (int i = 0; i < static_cast<int>(points.size()); ++i) {
-			const float dx = mousePos.x - points[i].x;
-			const float dy = mousePos.y - points[i].y;
-			const float distance = std::sqrt(dx * dx + dy * dy);
-			if (distance < bestDistance) {
-				bestDistance = distance;
-				hoveredBand = i;
-			}
-		}
+		hoveredBand = findNearestPointIndex(points, ImGui::GetIO().MousePos);
 	}
 
+	const float baseHandleRadius = visibleBandHandles.size() >= 24
+		? 2.6f
+		: (visibleBandHandles.size() >= 16 ? 3.2f : 4.5f);
 	for (int i = 0; i < static_cast<int>(points.size()); ++i) {
 		const bool highlighted = (i == activeEqualizerBand) || (i == hoveredBand);
+		const float handleRadius = highlighted ? (baseHandleRadius + 1.0f) : baseHandleRadius;
 		drawList->AddCircleFilled(
 			points[i],
-			highlighted ? 5.5f : 4.5f,
+			handleRadius,
 			ImGui::GetColorU32(highlighted ? kUiAccentBright : kUiAccent));
 		drawList->AddCircle(
 			points[i],
-			highlighted ? 5.5f : 4.5f,
+			handleRadius,
 			ImGui::GetColorU32(kUiBg),
 			0,
 			1.0f);
-
-		const std::string frequencyLabel = formatEqualizerFrequency(player.getEqualizerBandFrequency(visibleBandIndices[i]));
-		const ImVec2 labelSize = ImGui::CalcTextSize(frequencyLabel.c_str());
-		drawList->AddText(
-			ImVec2(
-				std::clamp(points[i].x - labelSize.x * 0.5f, graphMin.x + 2.0f, graphMax.x - labelSize.x - 2.0f),
-				frequencyLabelY),
-			ImGui::GetColorU32(highlighted ? kUiAccentBright : kUiBorder),
-			frequencyLabel.c_str());
 	}
 
-	if (hoveredBand >= 0 && hoveredBand < static_cast<int>(visibleBandIndices.size()) && ImGui::BeginTooltip()) {
-		const int bandIndex = visibleBandIndices[hoveredBand];
-		ImGui::TextUnformatted(formatEqualizerFrequency(player.getEqualizerBandFrequency(bandIndex)).c_str());
-		ImGui::Text("%.1f dB", player.getEqualizerBandAmp(bandIndex));
+	if (hoveredBand >= 0 && hoveredBand < static_cast<int>(visibleBandHandles.size()) && ImGui::BeginTooltip()) {
+		const EqualizerBandHandle & handle = visibleBandHandles[static_cast<size_t>(hoveredBand)];
+		ImGui::TextUnformatted(formatEqualizerFrequency(handle.targetFrequencyHz).c_str());
+		ImGui::Text("%.1f dB", getEqualizerHandleAmp(player, handle));
+		if (handle.lowerBandIndex != handle.upperBandIndex) {
+			ImGui::Separator();
+			ImGui::TextDisabled(
+				"blend: %s / %s",
+				formatEqualizerFrequency(bandFrequencies[static_cast<size_t>(handle.lowerBandIndex)]).c_str(),
+				formatEqualizerFrequency(bandFrequencies[static_cast<size_t>(handle.upperBandIndex)]).c_str());
+		}
 		ImGui::EndTooltip();
 	}
 

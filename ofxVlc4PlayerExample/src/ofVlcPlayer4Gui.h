@@ -25,6 +25,23 @@ enum class AnaglyphColorMode {
 	AmberBlue
 };
 
+enum class AnalyzerDisplayStyle {
+	Studio = 0,
+	Mastering,
+	RtaBars,
+	Hybrid
+};
+
+enum class EqualizerBandLayout {
+	Graphic30 = 0,
+	Graphic16,
+	Graphic10,
+	Mix8,
+	Broad6,
+	Mastering5,
+	Broad3
+};
+
 class ofVlcPlayer4Gui {
 public:
 	void setup();
@@ -134,6 +151,9 @@ private:
 	AnaglyphColorMode anaglyphColorMode = AnaglyphColorMode::RedCyan;
 	bool anaglyphSwapEyes = false;
 	float anaglyphEyeSeparation = 0.0f;
-	std::vector<float> equalizerControlYs;
-	int lastEqualizerPresetIndex = -9999;
+	AnalyzerDisplayStyle analyzerDisplayStyle = AnalyzerDisplayStyle::Studio;
+	EqualizerBandLayout equalizerBandLayout = EqualizerBandLayout::Graphic10;
+	std::vector<float> analyzerPeakHoldLevels;
+	std::vector<float> analyzerPeakHoldTimers;
+	double lastAnalyzerPeakUpdateTime = 0.0;
 };
