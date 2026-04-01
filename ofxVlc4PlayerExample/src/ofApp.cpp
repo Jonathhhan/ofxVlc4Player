@@ -390,7 +390,7 @@ void ofApp::setup() {
 	const char * vlc_argv[] = {
 		"--file-caching=10",
 		"--network-caching=10",
-		"--verbose=2"
+		"--verbose=-1"
 	};
 	int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 
