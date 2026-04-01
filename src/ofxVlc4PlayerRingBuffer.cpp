@@ -173,6 +173,45 @@ size_t ofxVlc4PlayerRingBuffer::read(float * dst, size_t wanted, float gain) {
 	return filled;
 }
 
+size_t ofxVlc4PlayerRingBuffer::peekLatest(float * dst, size_t wanted) const {
+	if (!dst || wanted == 0 || _capacity == 0) return 0;
+
+	const auto writeStart = _writeStart.load(std::memory_order_acquire);
+	const auto readStart = _readStart.load(std::memory_order_acquire);
+	const size_t readable = (writeStart > readStart) ? std::min(writeStart - readStart, _capacity) : 0;
+	const size_t copied = std::min(wanted, readable);
+	const size_t zeroPad = wanted - copied;
+
+	if (zeroPad > 0) {
+		std::memset(dst, 0, zeroPad * sizeof(float));
+	}
+	if (copied == 0) {
+		return 0;
+	}
+
+	const size_t startIndex = (writeStart - copied) & _mask;
+	const size_t firstCount = std::min(_capacity - startIndex, copied);
+	std::memcpy(dst + zeroPad, _buffer.data() + startIndex, firstCount * sizeof(float));
+
+	const size_t secondCount = copied - firstCount;
+	if (secondCount > 0) {
+		std::memcpy(dst + zeroPad + firstCount, _buffer.data(), secondCount * sizeof(float));
+	}
+
+	return copied;
+}
+
+size_t ofxVlc4PlayerRingBuffer::peekLatest(float * dst, size_t wanted, float gain) const {
+	const size_t copied = peekLatest(dst, wanted);
+	if (gain != 1.0f) {
+		for (size_t i = 0; i < wanted; ++i) {
+			dst[i] *= gain;
+		}
+	}
+
+	return copied;
+}
+
 void ofxVlc4PlayerRingBuffer::readIntoVector(std::vector<float> & data) {
 	if (!data.empty()) {
 		read(data.data(), data.size());

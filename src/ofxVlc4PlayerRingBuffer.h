@@ -25,6 +25,8 @@ public:
 	size_t write(const float * src, size_t sampleCount);
 	size_t read(float * dst, size_t sampleCount);
 	size_t read(float * dst, size_t sampleCount, float gain);
+	size_t peekLatest(float * dst, size_t sampleCount) const;
+	size_t peekLatest(float * dst, size_t sampleCount, float gain) const;
 
 	size_t getReadPosition();
 	size_t getNumReadableSamples() const;

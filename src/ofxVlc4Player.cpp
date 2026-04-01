@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
+#include <complex>
 #include <cstring>
 #include <filesystem>
 #include <functional>
@@ -14,8 +16,60 @@
 
 namespace {
 constexpr double kBufferedAudioSeconds = 0.75;
+constexpr size_t kSpectrumFftSize = 4096;
+constexpr float kSpectrumMinFrequencyHz = 20.0f;
+constexpr float kSpectrumWindowOctaves = 0.10f;
+constexpr float kSpectrumTopDb = 0.0f;
+constexpr float kSpectrumBottomDb = -72.0f;
+constexpr float kSpectrumAttack = 0.40f;
+constexpr float kSpectrumRelease = 0.12f;
+constexpr float kPi = 3.14159265358979323846f;
 constexpr const char * kLogChannel = "ofxVlc4Player";
 std::atomic<int> gLogLevel { static_cast<int>(OF_LOG_NOTICE) };
+
+size_t reverseBits(size_t value, unsigned int bitCount) {
+	size_t reversed = 0;
+	for (unsigned int i = 0; i < bitCount; ++i) {
+		reversed = (reversed << 1) | (value & 1u);
+		value >>= 1u;
+	}
+	return reversed;
+}
+
+void fftInPlace(std::vector<std::complex<float>> & values) {
+	const size_t size = values.size();
+	if (size <= 1) {
+		return;
+	}
+
+	unsigned int bitCount = 0;
+	for (size_t value = size; value > 1; value >>= 1u) {
+		++bitCount;
+	}
+
+	for (size_t i = 0; i < size; ++i) {
+		const size_t j = reverseBits(i, bitCount);
+		if (j > i) {
+			std::swap(values[i], values[j]);
+		}
+	}
+
+	for (size_t len = 2; len <= size; len <<= 1u) {
+		const float angle = (-2.0f * kPi) / static_cast<float>(len);
+		const std::complex<float> phaseStep(std::cos(angle), std::sin(angle));
+		for (size_t start = 0; start < size; start += len) {
+			std::complex<float> phase(1.0f, 0.0f);
+			const size_t halfLen = len >> 1u;
+			for (size_t i = 0; i < halfLen; ++i) {
+				const std::complex<float> even = values[start + i];
+				const std::complex<float> odd = phase * values[start + i + halfLen];
+				values[start + i] = even + odd;
+				values[start + i + halfLen] = even - odd;
+				phase *= phaseStep;
+			}
+		}
+	}
+}
 
 std::string trimWhitespace(const std::string & value) {
 	const auto first = value.find_first_not_of(" \t\r\n");
@@ -1768,6 +1822,135 @@ float ofxVlc4Player::getEqualizerBandAmp(int index) const {
 	}
 
 	return equalizerBandAmps[index];
+}
+
+std::vector<float> ofxVlc4Player::getEqualizerSpectrumLevels(size_t pointCount) const {
+	std::vector<float> levels(pointCount, 0.0f);
+	if (levels.empty() || equalizerBandAmps.empty() || !audioCaptureEnabled || !isAudioReady.load()) {
+		smoothedSpectrumLevels.clear();
+		return levels;
+	}
+
+	const int rate = sampleRate.load();
+	const int channelCount = std::max(channels.load(), 1);
+	if (rate <= 0 || channelCount <= 0) {
+		smoothedSpectrumLevels.clear();
+		return levels;
+	}
+
+	std::vector<float> interleavedSamples(kSpectrumFftSize * static_cast<size_t>(channelCount), 0.0f);
+	size_t copiedSamples = 0;
+	{
+		std::lock_guard<std::mutex> lock(audioMutex);
+		copiedSamples = ringBuffer.peekLatest(interleavedSamples.data(), interleavedSamples.size());
+	}
+	if (copiedSamples == 0) {
+		smoothedSpectrumLevels.clear();
+		return levels;
+	}
+
+	std::vector<std::complex<float>> fftInput(kSpectrumFftSize);
+	float windowSum = 0.0f;
+	for (size_t frameIndex = 0; frameIndex < kSpectrumFftSize; ++frameIndex) {
+		float monoSample = 0.0f;
+		const size_t frameOffset = frameIndex * static_cast<size_t>(channelCount);
+		for (int channelIndex = 0; channelIndex < channelCount; ++channelIndex) {
+			monoSample += interleavedSamples[frameOffset + static_cast<size_t>(channelIndex)];
+		}
+		monoSample /= static_cast<float>(channelCount);
+
+		const float window = 0.5f - (0.5f * std::cos((2.0f * kPi * static_cast<float>(frameIndex)) / static_cast<float>(kSpectrumFftSize - 1)));
+		windowSum += window;
+		fftInput[frameIndex] = std::complex<float>(monoSample * window, 0.0f);
+	}
+
+	fftInPlace(fftInput);
+
+	std::vector<float> magnitudes((kSpectrumFftSize / 2u) + 1u, 0.0f);
+	for (size_t binIndex = 1; binIndex < magnitudes.size(); ++binIndex) {
+		magnitudes[binIndex] = std::abs(fftInput[binIndex]);
+	}
+
+	const float nyquist = static_cast<float>(rate) * 0.5f;
+	const float minEqFrequency = std::max(getEqualizerBandFrequency(0), kSpectrumMinFrequencyHz);
+	const float maxEqFrequency = std::min(
+		nyquist,
+		std::max(getEqualizerBandFrequency(static_cast<int>(equalizerBandAmps.size()) - 1), minEqFrequency * 2.0f));
+	if (maxEqFrequency <= minEqFrequency) {
+		smoothedSpectrumLevels.clear();
+		return levels;
+	}
+
+	const float amplitudeScale = windowSum > 0.0f ? (2.0f / windowSum) : 0.0f;
+	std::vector<float> pointDecibels(levels.size(), kSpectrumBottomDb);
+	for (size_t pointIndex = 0; pointIndex < levels.size(); ++pointIndex) {
+		const float t = levels.size() <= 1
+			? 0.0f
+			: static_cast<float>(pointIndex) / static_cast<float>(levels.size() - 1);
+		const float targetFrequency =
+			minEqFrequency * std::pow(maxEqFrequency / minEqFrequency, t);
+		const float halfWindow = 0.5f * kSpectrumWindowOctaves;
+		const float lowFrequency = std::max(
+			kSpectrumMinFrequencyHz,
+			targetFrequency / std::pow(2.0f, halfWindow));
+		const float highFrequency = std::min(
+			nyquist,
+			targetFrequency * std::pow(2.0f, halfWindow));
+
+		int lowBin = static_cast<int>(std::floor((lowFrequency / static_cast<float>(rate)) * static_cast<float>(kSpectrumFftSize)));
+		int highBin = static_cast<int>(std::ceil((highFrequency / static_cast<float>(rate)) * static_cast<float>(kSpectrumFftSize)));
+		lowBin = std::clamp(lowBin, 1, static_cast<int>(magnitudes.size()) - 1);
+		highBin = std::clamp(highBin, lowBin, static_cast<int>(magnitudes.size()) - 1);
+
+		float powerSum = 0.0f;
+		int sampleCount = 0;
+		for (int binIndex = lowBin; binIndex <= highBin; ++binIndex) {
+			const float amplitude = magnitudes[static_cast<size_t>(binIndex)] * amplitudeScale;
+			powerSum += amplitude * amplitude;
+			++sampleCount;
+		}
+
+		const float rmsAmplitude = sampleCount > 0
+			? std::sqrt(powerSum / static_cast<float>(sampleCount))
+			: 0.0f;
+		pointDecibels[pointIndex] = 20.0f * std::log10(rmsAmplitude + 1.0e-9f);
+	}
+
+	if (pointDecibels.size() >= 7) {
+		std::vector<float> smoothedDecibels(pointDecibels.size(), 0.0f);
+		for (size_t i = 0; i < pointDecibels.size(); ++i) {
+			const size_t i0 = (i >= 3) ? (i - 3) : 0;
+			const size_t i1 = (i >= 2) ? (i - 2) : 0;
+			const size_t i2 = (i >= 1) ? (i - 1) : 0;
+			const size_t i4 = std::min(i + 1, pointDecibels.size() - 1);
+			const size_t i5 = std::min(i + 2, pointDecibels.size() - 1);
+			const size_t i6 = std::min(i + 3, pointDecibels.size() - 1);
+			smoothedDecibels[i] =
+				(pointDecibels[i0] * 0.06f) +
+				(pointDecibels[i1] * 0.12f) +
+				(pointDecibels[i2] * 0.18f) +
+				(pointDecibels[i]  * 0.28f) +
+				(pointDecibels[i4] * 0.18f) +
+				(pointDecibels[i5] * 0.12f) +
+				(pointDecibels[i6] * 0.06f);
+		}
+		pointDecibels.swap(smoothedDecibels);
+	}
+
+	if (smoothedSpectrumLevels.size() != levels.size()) {
+		smoothedSpectrumLevels.assign(levels.size(), 0.0f);
+	}
+
+	for (size_t pointIndex = 0; pointIndex < levels.size(); ++pointIndex) {
+		const float normalized = ofMap(pointDecibels[pointIndex], kSpectrumBottomDb, kSpectrumTopDb, 0.0f, 1.0f, true);
+		const float previous = smoothedSpectrumLevels[pointIndex];
+		const float smoothing = normalized > previous ? kSpectrumAttack : kSpectrumRelease;
+		const float smoothed = previous + ((normalized - previous) * smoothing);
+		smoothedSpectrumLevels[pointIndex] = smoothed;
+		levels[pointIndex] = smoothed;
+	}
+
+	return levels;
 }
 
 void ofxVlc4Player::setEqualizerBandAmp(int index, float amp) {

@@ -110,6 +110,7 @@ private:
 	std::vector<std::string> playlist;
 	mutable std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> metadataCache;
 	std::vector<float> equalizerBandAmps;
+	mutable std::vector<float> smoothedSpectrumLevels;
 	int currentIndex = -1;
 
 	// VLC Video callbacks
@@ -249,6 +250,7 @@ public:
 	float getEqualizerBandFrequency(int index) const;
 	float getEqualizerBandAmp(int index) const;
 	void setEqualizerBandAmp(int index, float amp);
+	std::vector<float> getEqualizerSpectrumLevels(size_t pointCount = 512) const;
 	int getEqualizerPresetCount() const;
 	std::string getEqualizerPresetName(int index) const;
 	int getEqualizerPresetIndex() const;
