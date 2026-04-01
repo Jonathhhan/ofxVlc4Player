@@ -1,3 +1,4 @@
+![ofxVlc4Player](ofxVlc4Player.jpg)
 Inspired by [ofxVLCVideoPlayer](https://github.com/jnakanojp/ofxVLCVideoPlayer).
 
 `ofxVlc4Player` binds libVLC 4 for openFrameworks.
