@@ -155,6 +155,11 @@ bool pathExists(const std::string & path) {
 	return ofFile::doesFileExist(path, true) || ofDirectory::doesDirectoryExist(path, true);
 }
 
+bool isSupportedCustomImagePath(const std::string & path) {
+	const std::string extension = ofToLower(ofFilePath::getFileExt(path));
+	return extension == "png" || extension == "jpg" || extension == "jpeg" || extension == "bmp";
+}
+
 bool isSupportedVideoPath(const std::string & path) {
 	const std::string extension = ofToLower(ofFilePath::getFileExt(path));
 	return extension == "mp4" || extension == "mov" || extension == "m4v" || extension == "webm" ||
@@ -975,7 +980,7 @@ bool ofApp::loadCustomProjectMTexture(const std::string & rawPath) {
 		return false;
 	}
 
-	if (!isSupportedImagePath(resolvedPath)) {
+	if (!isSupportedCustomImagePath(resolvedPath)) {
 		return false;
 	}
 
