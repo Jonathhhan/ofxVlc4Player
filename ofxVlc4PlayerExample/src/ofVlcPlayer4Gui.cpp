@@ -1798,6 +1798,9 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 	if (applyHoveredWheelStep(fov, 1.0f, 179.0f, 1.0f)) {
 		player.setVideoViewpoint(yaw, pitch, roll, fov);
 	}
+	if (ImGui::Button("Reset", ImVec2(kActionButtonWidth, 0.0f))) {
+		player.resetVideoViewpoint();
+	}
 
 	ImGui::Separator();
 	ImGui::TextDisabled("Anaglyph");
@@ -1815,10 +1818,7 @@ void ofVlcPlayer4Gui::drawVideo3DSection(ofxVlc4Player & player) {
 			anaglyphEyeSeparation = ofClamp(anaglyphEyeSeparation, -0.15f, 0.15f);
 		}
 		applyHoveredWheelStep(anaglyphEyeSeparation, -0.15f, 0.15f, 0.01f);
-	}
-
-	if (ImGui::Button("Reset View", ImVec2(kActionButtonWidth, 0.0f))) {
-		player.resetVideoViewpoint();
+		ImGui::Separator();
 	}
 
 	ImGui::PopItemWidth();
