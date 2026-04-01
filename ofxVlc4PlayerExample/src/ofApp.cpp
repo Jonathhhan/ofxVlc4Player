@@ -287,216 +287,35 @@ std::pair<glm::vec3, glm::vec3> getAnaglyphTints(AnaglyphColorMode mode) {
 		};
 	}
 }
+
+bool loadShaderProgram(ofShader & shader, const std::string & fragmentBaseName) {
+	const bool programmable = ofIsGLProgrammableRenderer();
+	const std::string vertexPath = programmable ? "shaders/passthrough_gl3.vert" : "shaders/passthrough_gl2.vert";
+	const std::string fragmentPath = programmable
+		? ("shaders/" + fragmentBaseName + "_gl3.frag")
+		: ("shaders/" + fragmentBaseName + "_gl2.frag");
+
+	bool ready =
+		shader.setupShaderFromFile(GL_VERTEX_SHADER, vertexPath) &&
+		shader.setupShaderFromFile(GL_FRAGMENT_SHADER, fragmentPath);
+	if (ready && programmable) {
+		shader.bindDefaults();
+	}
+	if (ready) {
+		ready = shader.linkProgram();
+	}
+	return ready;
+}
 }
 
 void ofApp::setupVideoAdjustShader() {
-	std::string vertexSource;
-	std::string fragmentSource;
-
-	if (ofIsGLProgrammableRenderer()) {
-		vertexSource = R"(
-			#version 150
-			uniform mat4 modelViewProjectionMatrix;
-			in vec4 position;
-			in vec2 texcoord;
-			out vec2 vTexCoord;
-			void main() {
-				vTexCoord = texcoord;
-				gl_Position = modelViewProjectionMatrix * position;
-			}
-		)";
-
-		fragmentSource = R"(
-			#version 150
-			uniform sampler2D tex0;
-			uniform float brightness;
-			uniform float contrast;
-			uniform float saturation;
-			uniform float gammaValue;
-			uniform float hueDegrees;
-			in vec2 vTexCoord;
-			out vec4 outputColor;
-
-			vec3 applyHueRotation(vec3 color, float hueDegreesValue) {
-				float angle = radians(hueDegreesValue);
-				float cosA = cos(angle);
-				float sinA = sin(angle);
-
-				mat3 rgbToYiq = mat3(
-					0.299, 0.587, 0.114,
-					0.596, -0.274, -0.322,
-					0.211, -0.523, 0.312
-				);
-				mat3 yiqToRgb = mat3(
-					1.0, 0.956, 0.621,
-					1.0, -0.272, -0.647,
-					1.0, -1.106, 1.703
-				);
-
-				vec3 yiq = rgbToYiq * color;
-				vec2 iq = mat2(cosA, -sinA, sinA, cosA) * yiq.yz;
-				return yiqToRgb * vec3(yiq.x, iq.x, iq.y);
-			}
-
-			void main() {
-				vec3 color = texture(tex0, vTexCoord).rgb;
-				color = applyHueRotation(color, hueDegrees);
-				float luma = dot(color, vec3(0.299, 0.587, 0.114));
-				color = mix(vec3(luma), color, saturation);
-				color = ((color - 0.5) * contrast) + 0.5;
-				color += vec3(brightness - 1.0);
-				color = clamp(color, 0.0, 1.0);
-				color = pow(color, vec3(1.0 / max(gammaValue, 0.001)));
-				outputColor = vec4(clamp(color, 0.0, 1.0), 1.0);
-			}
-		)";
-	} else {
-		vertexSource = R"(
-			#version 120
-			varying vec2 vTexCoord;
-			void main() {
-				vTexCoord = gl_MultiTexCoord0.xy;
-				gl_Position = ftransform();
-			}
-		)";
-
-		fragmentSource = R"(
-			#version 120
-			uniform sampler2D tex0;
-			uniform float brightness;
-			uniform float contrast;
-			uniform float saturation;
-			uniform float gammaValue;
-			uniform float hueDegrees;
-			varying vec2 vTexCoord;
-
-			vec3 applyHueRotation(vec3 color, float hueDegreesValue) {
-				float angle = radians(hueDegreesValue);
-				float cosA = cos(angle);
-				float sinA = sin(angle);
-
-				mat3 rgbToYiq = mat3(
-					0.299, 0.587, 0.114,
-					0.596, -0.274, -0.322,
-					0.211, -0.523, 0.312
-				);
-				mat3 yiqToRgb = mat3(
-					1.0, 0.956, 0.621,
-					1.0, -0.272, -0.647,
-					1.0, -1.106, 1.703
-				);
-
-				vec3 yiq = rgbToYiq * color;
-				vec2 iq = mat2(cosA, -sinA, sinA, cosA) * yiq.yz;
-				return yiqToRgb * vec3(yiq.x, iq.x, iq.y);
-			}
-
-			void main() {
-				vec3 color = texture2D(tex0, vTexCoord).rgb;
-				color = applyHueRotation(color, hueDegrees);
-				float luma = dot(color, vec3(0.299, 0.587, 0.114));
-				color = mix(vec3(luma), color, saturation);
-				color = ((color - 0.5) * contrast) + 0.5;
-				color += vec3(brightness - 1.0);
-				color = clamp(color, 0.0, 1.0);
-				color = pow(color, vec3(1.0 / max(gammaValue, 0.001)));
-				gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
-			}
-		)";
-	}
-
-	videoAdjustShaderReady =
-		videoAdjustShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexSource) &&
-		videoAdjustShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentSource);
-	if (videoAdjustShaderReady && ofIsGLProgrammableRenderer()) {
-		videoAdjustShader.bindDefaults();
-	}
-	if (videoAdjustShaderReady) {
-		videoAdjustShaderReady = videoAdjustShader.linkProgram();
-	}
+	videoAdjustShaderReady = loadShaderProgram(videoAdjustShader, "videoAdjust");
 }
 
 void ofApp::setupAnaglyphShader() {
-	std::string vertexSource;
-	std::string fragmentSource;
-
 	// The example keeps anaglyph rendering local: VLC still produces the stereo frame,
 	// and this shader only remaps an SBS preview into a simple red/cyan display.
-	if (ofIsGLProgrammableRenderer()) {
-		vertexSource = R"(
-			#version 150
-			uniform mat4 modelViewProjectionMatrix;
-			in vec4 position;
-			in vec2 texcoord;
-			out vec2 vTexCoord;
-			void main() {
-				vTexCoord = texcoord;
-				gl_Position = modelViewProjectionMatrix * position;
-			}
-		)";
-
-		fragmentSource = R"(
-			#version 150
-			uniform sampler2D tex0;
-			uniform vec3 leftTint;
-			uniform vec3 rightTint;
-			uniform float eyeSeparation;
-			uniform float swapEyes;
-			in vec2 vTexCoord;
-			out vec4 outputColor;
-			void main() {
-				float leftSource = (swapEyes > 0.5) ? 0.5 : 0.0;
-				float rightSource = (swapEyes > 0.5) ? 0.0 : 0.5;
-				float leftX = clamp(leftSource + vTexCoord.x * 0.5 + eyeSeparation, leftSource, leftSource + 0.5);
-				float rightX = clamp(rightSource + vTexCoord.x * 0.5 - eyeSeparation, rightSource, rightSource + 0.5);
-				vec3 leftColor = texture(tex0, vec2(leftX, vTexCoord.y)).rgb;
-				vec3 rightColor = texture(tex0, vec2(rightX, vTexCoord.y)).rgb;
-				float leftLuma = dot(leftColor, vec3(0.299, 0.587, 0.114));
-				float rightLuma = dot(rightColor, vec3(0.299, 0.587, 0.114));
-				outputColor = vec4(leftTint * leftLuma + rightTint * rightLuma, 1.0);
-			}
-		)";
-	} else {
-		vertexSource = R"(
-			#version 120
-			varying vec2 vTexCoord;
-			void main() {
-				vTexCoord = gl_MultiTexCoord0.xy;
-				gl_Position = ftransform();
-			}
-		)";
-
-		fragmentSource = R"(
-			#version 120
-			uniform sampler2D tex0;
-			uniform vec3 leftTint;
-			uniform vec3 rightTint;
-			uniform float eyeSeparation;
-			uniform float swapEyes;
-			varying vec2 vTexCoord;
-			void main() {
-				float leftSource = (swapEyes > 0.5) ? 0.5 : 0.0;
-				float rightSource = (swapEyes > 0.5) ? 0.0 : 0.5;
-				float leftX = clamp(leftSource + vTexCoord.x * 0.5 + eyeSeparation, leftSource, leftSource + 0.5);
-				float rightX = clamp(rightSource + vTexCoord.x * 0.5 - eyeSeparation, rightSource, rightSource + 0.5);
-				vec3 leftColor = texture2D(tex0, vec2(leftX, vTexCoord.y)).rgb;
-				vec3 rightColor = texture2D(tex0, vec2(rightX, vTexCoord.y)).rgb;
-				float leftLuma = dot(leftColor, vec3(0.299, 0.587, 0.114));
-				float rightLuma = dot(rightColor, vec3(0.299, 0.587, 0.114));
-				gl_FragColor = vec4(leftTint * leftLuma + rightTint * rightLuma, 1.0);
-			}
-		)";
-	}
-
-	anaglyphShaderReady =
-		anaglyphShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexSource) &&
-		anaglyphShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentSource);
-	if (anaglyphShaderReady && ofIsGLProgrammableRenderer()) {
-		anaglyphShader.bindDefaults();
-	}
-	if (anaglyphShaderReady) {
-		anaglyphShaderReady = anaglyphShader.linkProgram();
-	}
+	anaglyphShaderReady = loadShaderProgram(anaglyphShader, "anaglyph");
 }
 
 void ofApp::updateVideoAdjustPreview(const ofTexture & sourceTexture, float sourceWidth, float sourceHeight) {
