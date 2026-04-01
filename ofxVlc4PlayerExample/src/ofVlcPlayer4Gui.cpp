@@ -33,6 +33,11 @@ const ImVec4 kUiAccent(0.35f, 0.56f, 0.86f, 0.92f);
 const ImVec4 kUiAccentHover(0.42f, 0.63f, 0.91f, 1.0f);
 const ImVec4 kUiAccentActive(0.28f, 0.49f, 0.79f, 1.0f);
 const ImVec4 kUiAccentBright(0.55f, 0.72f, 0.96f, 1.0f);
+const ImVec4 kUiEqualizerCurve(0.42f, 0.63f, 0.91f, 0.96f);
+const ImVec4 kUiEqualizerHandleLine(0.35f, 0.56f, 0.86f, 0.42f);
+const ImVec4 kUiAnalyzerFill(0.28f, 0.49f, 0.79f, 0.20f);
+const ImVec4 kUiAnalyzerLine(0.42f, 0.63f, 0.91f, 0.48f);
+const ImVec4 kUiAnalyzerPeak(0.55f, 0.72f, 0.96f, 0.82f);
 const ImVec4 kUiGreySelected(0.23f, 0.25f, 0.27f, 0.96f);
 const ImVec4 kUiGreyHover(0.29f, 0.31f, 0.33f, 0.92f);
 const ImVec4 kUiTitleBg(0.16f, 0.17f, 0.18f, 1.0f);
@@ -1418,14 +1423,11 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 	}
 
 	if (spectrumPoints.size() >= 2) {
-		const ImVec4 spectrumFillColor(kUiAccent.x, kUiAccent.y, kUiAccent.z, 0.12f);
-		const ImVec4 spectrumLineColor(kUiAccentBright.x, kUiAccentBright.y, kUiAccentBright.z, 0.32f);
-		const ImVec4 peakHoldColor(0.92f, 0.82f, 0.38f, 0.92f);
 		const auto drawSpectrumLine = [&]() {
 			drawList->AddPolyline(
 				spectrumPoints.data(),
 				static_cast<int>(spectrumPoints.size()),
-				ImGui::GetColorU32(spectrumLineColor),
+				ImGui::GetColorU32(kUiAnalyzerLine),
 				ImDrawFlags_None,
 				1.5f);
 		};
@@ -1438,7 +1440,7 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 					left,
 					right,
 					ImVec2(right.x, graphMax.y),
-					ImGui::GetColorU32(spectrumFillColor));
+					ImGui::GetColorU32(kUiAnalyzerFill));
 			}
 		};
 		const auto drawPeakHoldLine = [&]() {
@@ -1449,7 +1451,7 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 			drawList->AddPolyline(
 				peakHoldPoints.data(),
 				static_cast<int>(peakHoldPoints.size()),
-				ImGui::GetColorU32(peakHoldColor),
+				ImGui::GetColorU32(kUiAnalyzerPeak),
 				ImDrawFlags_None,
 				1.0f);
 		};
@@ -1481,7 +1483,7 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 				drawList->AddRectFilled(
 					ImVec2(x0 + gap, topY),
 					ImVec2(std::max(x0 + gap, x1 - gap), graphMax.y),
-					ImGui::GetColorU32(spectrumFillColor));
+					ImGui::GetColorU32(kUiAnalyzerFill));
 
 				if (drawBarPeakHold && barIndex < static_cast<int>(analyzerPeakHoldLevels.size())) {
 					const int peakSample = std::min(
@@ -1493,7 +1495,7 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 					drawList->AddLine(
 						ImVec2(x0 + gap, peakY),
 						ImVec2(std::max(x0 + gap, x1 - gap), peakY),
-						ImGui::GetColorU32(peakHoldColor),
+						ImGui::GetColorU32(kUiAnalyzerPeak),
 						1.0f);
 				}
 			}
@@ -1561,7 +1563,7 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 		drawList->AddPolyline(
 			curvePoints.data(),
 			static_cast<int>(curvePoints.size()),
-			ImGui::GetColorU32(kUiAccent),
+			ImGui::GetColorU32(kUiEqualizerCurve),
 			ImDrawFlags_None,
 			2.0f);
 	}
@@ -1569,7 +1571,7 @@ void ofVlcPlayer4Gui::drawEqualizerSection(ofxVlc4Player & player) {
 		drawList->AddPolyline(
 			handleLinePoints.data(),
 			static_cast<int>(handleLinePoints.size()),
-			ImGui::GetColorU32(ImVec4(kUiAccentBright.x, kUiAccentBright.y, kUiAccentBright.z, 0.55f)),
+			ImGui::GetColorU32(kUiEqualizerHandleLine),
 			ImDrawFlags_None,
 			1.0f);
 	}
