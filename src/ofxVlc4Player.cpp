@@ -200,6 +200,57 @@ std::set<std::string> normalizeExtensions(std::initializer_list<std::string> ext
 	return out;
 }
 
+std::string mediaExtensionForPath(const std::string & absolutePath) {
+	const std::string extension = ofToLower(ofFilePath::getFileExt(absolutePath));
+	return extension.empty() ? "" : ("." + extension);
+}
+
+bool isImageExtension(const std::string & absolutePath) {
+	const std::string extension = mediaExtensionForPath(absolutePath);
+	return extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp";
+}
+
+bool tryLoadImageDimensions(const std::string & absolutePath, int & width, int & height) {
+	ofImage image;
+	if (!image.load(absolutePath) || !image.isAllocated()) {
+		return false;
+	}
+
+	width = image.getWidth();
+	height = image.getHeight();
+	return true;
+}
+
+bool supportsVlcImageInterop(const std::string & absolutePath) {
+	if (!isImageExtension(absolutePath)) {
+		return true;
+	}
+
+	int imageWidth = 0;
+	int imageHeight = 0;
+	if (!tryLoadImageDimensions(absolutePath, imageWidth, imageHeight)) {
+		ofLogWarning(kLogChannel) << "Playlist image could not be inspected: " << absolutePath;
+		return false;
+	}
+	if (imageWidth <= 1 || imageHeight <= 1) {
+		ofLogWarning(kLogChannel)
+			<< "Rejected playlist image for VLC playback because dimensions are too small for reliable GL interop ("
+			<< imageWidth << "x" << imageHeight << "): " << absolutePath;
+		return false;
+	}
+
+	return true;
+}
+
+bool isSupportedMediaPath(
+	const std::string & absolutePath,
+	const std::set<std::string> & activeExtensions) {
+	const std::string extension = mediaExtensionForPath(absolutePath);
+	return !extension.empty() &&
+		activeExtensions.count(extension) > 0 &&
+		supportsVlcImageInterop(absolutePath);
+}
+
 void clearAllocatedFbo(ofFbo & fbo) {
 	if (!fbo.isAllocated()) {
 		return;
@@ -677,8 +728,8 @@ bool ofxVlc4Player::isSupportedMediaFile(const ofFile & file, const std::set<std
 	}
 
 	const std::set<std::string> & activeExtensions = extensions ? *extensions : defaultMediaExtensions();
-	const std::string extension = "." + ofToLower(ofFilePath::getFileExt(file.getAbsolutePath()));
-	return !extension.empty() && activeExtensions.count(extension) > 0;
+	const std::string absolutePath = file.getAbsolutePath();
+	return isSupportedMediaPath(absolutePath, activeExtensions);
 }
 
 void ofxVlc4Player::prepareAudioRingBuffer() {
